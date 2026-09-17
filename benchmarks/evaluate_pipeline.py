@@ -34,18 +34,26 @@ def evaluate_run(db_path: str = "data/events.sqlite", run_id: Optional[str] = No
     detected_events = [dict(r) for r in cursor.fetchall()]
     conn.close()
 
+    gt_videos = set(gt['video_source'] for gt in ground_truth)
+    eval_detected = [d for d in detected_events if d['video_source'] in gt_videos]
+
     print("\n" + "="*60)
     print("GROUND TRUTH EVALUATION")
     print("="*60)
-    print(f"Ground Truth Events:  {len(ground_truth)}")
-    print(f"Detected Events:      {len(detected_events)}")
+    print(f"Ground Truth Events:  {len(ground_truth)} (en clips 60 y 61)")
+    print(f"Total Eventos Lote:   {len(detected_events)}")
+    if not eval_detected:
+        print("ℹ️ Esta corrida no incluye los clips de prueba (60) o (61). Evaluación omitida.")
+        print("="*60 + "\n")
+        return
+    print(f"Eventos en Clips GT:  {len(eval_detected)}")
 
     matched_gt = set()
     matched_direction = 0
     exact_plate_matches = 0
     legible_gt_plates = sum(1 for gt in ground_truth if gt.get('plate_legible'))
 
-    for det in detected_events:
+    for det in eval_detected:
         det_ts = det['event_timestamp']
         det_video = det['video_source']
         det_dir = det['direction']
@@ -87,7 +95,7 @@ def evaluate_run(db_path: str = "data/events.sqlite", run_id: Optional[str] = No
     event_recall = len(matched_gt) / len(ground_truth) if ground_truth else 0.0
     dir_acc = matched_direction / len(matched_gt) if matched_gt else 0.0
     plate_acc = exact_plate_matches / legible_gt_plates if legible_gt_plates else 0.0
-    false_positives = len(detected_events) - len(matched_gt)
+    false_positives = len(eval_detected) - len(matched_gt)
 
     print("-"*60)
     print(f"EVENT RECALL:          {event_recall:.1%} ({len(matched_gt)}/{len(ground_truth)})")
