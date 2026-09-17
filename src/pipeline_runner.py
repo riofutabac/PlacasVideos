@@ -33,8 +33,12 @@ from fast_alpr import ALPR
 # Optimize PyTorch CPU threading for dual-core Intel CPU
 torch.set_num_threads(4)
 
+import logging
+from ultralytics.utils import LOGGER
+LOGGER.setLevel(logging.ERROR)
+
 import warnings
-warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore')
 
 from src.timer_profiler import PipelineProfiler
 from src.quality_ranker import QualityRanker
@@ -45,7 +49,7 @@ from src.deduplicator import EventDeduplicator
 from src.db_manager import DatabaseManager
 from src.video_decoder import create_decoder
 
-PIPELINE_VERSION = "1.7.0"
+PIPELINE_VERSION = "1.7.1"
 
 def get_clip_start_datetime(video_filename: str) -> datetime:
     """
@@ -180,7 +184,7 @@ class ALPRPipeline:
             torch.backends.cudnn.benchmark = True
             try:
                 dummy_frame = np.zeros((self.vehicle_imgsz, self.vehicle_imgsz, 3), dtype=np.uint8)
-                self.vehicle_model(dummy_frame, imgsz=self.vehicle_imgsz, verbose=False, device=self.device, half=True)
+                self.vehicle_model(dummy_frame, imgsz=self.vehicle_imgsz, verbose=False, device=self.device)
                 dummy_crop = np.zeros((120, 240, 3), dtype=np.uint8)
                 self.alpr.predict(dummy_crop)
             except Exception:
@@ -270,8 +274,7 @@ class ALPRPipeline:
                         verbose=False,
                         conf=self.vehicle_conf,
                         classes=self.vehicle_classes,
-                        device=self.device,
-                        half=(self.device == 'cuda')
+                        device=self.device
                     )[0]
                 self.profiler.stop_stage('vehicle_detection')
     
