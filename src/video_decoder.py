@@ -29,7 +29,7 @@ def probe_video_metadata(video_path: str) -> Dict[str, Any]:
     cmd = [
         "ffprobe", "-v", "error",
         "-select_streams", "v:0",
-        "-show_entries", "stream=codec_name,pix_fmt,color_range,width,height,r_frame_rate,nb_frames,duration",
+        "-show_entries", "stream=codec_name,pix_fmt,color_range,width,height,r_frame_rate,avg_frame_rate,nb_frames,duration",
         "-of", "json",
         video_path
     ]
@@ -45,12 +45,24 @@ def probe_video_metadata(video_path: str) -> Dict[str, Any]:
         
         is_full_range = pix_fmt.startswith("yuvj") or color_range in ("pc", "full", "jpeg", "2")
         
-        r_fps = stream.get("r_frame_rate", "25/1")
-        if "/" in r_fps:
-            num, den = r_fps.split("/")
-            fps = float(num) / float(den) if float(den) != 0 else 25.0
-        else:
-            fps = float(r_fps)
+        fps = 25.0
+        for rate_key in ("avg_frame_rate", "r_frame_rate"):
+            rate_str = stream.get(rate_key, "")
+            if rate_str and "/" in rate_str:
+                num, den = rate_str.split("/")
+                if float(den) != 0:
+                    val = float(num) / float(den)
+                    if 10.0 <= val <= 120.0:
+                        fps = val
+                        break
+            elif rate_str:
+                try:
+                    val = float(rate_str)
+                    if 10.0 <= val <= 120.0:
+                        fps = val
+                        break
+                except ValueError:
+                    pass
             
         nb_frames = stream.get("nb_frames")
         total_frames = int(nb_frames) if nb_frames and nb_frames.isdigit() else 0
@@ -263,11 +275,9 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
             self.uv_y2 = self.height + (self.cy2 // 2)
 
     def _build_cmd(self, use_cuvid_fallback: bool = False) -> list:
-        range_filter = ",scale=in_range=full:out_range=limited" if self.is_full_range else ""
-
         if use_cuvid_fallback:
             cuvid_codec = "hevc_cuvid" if self.codec in ("hevc", "h265") else "h264_cuvid"
-            cmd = [
+            return [
                 "ffmpeg",
                 "-hide_banner",
                 "-nostdin",
@@ -276,18 +286,13 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
                 "-i", self.video_path,
                 "-map", "0:v:0",
                 "-an", "-sn", "-dn",
-            ]
-            if self.is_full_range:
-                cmd.extend(["-vf", "scale=in_range=full:out_range=limited"])
-            cmd.extend([
+                "-vsync", "0",
                 "-f", "rawvideo",
                 "-pix_fmt", "nv12",
                 "-"
-            ])
-            return cmd
+            ]
 
-        # Primary NVDEC CUDA command
-        vf = f"hwdownload,format=nv12{range_filter}"
+        # Primary benchmarked NVDEC CUDA command with -vsync 0 (zero frame duplication)
         return [
             "ffmpeg",
             "-hide_banner",
@@ -298,7 +303,8 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
             "-i", self.video_path,
             "-map", "0:v:0",
             "-an", "-sn", "-dn",
-            "-vf", vf,
+            "-vf", "hwdownload,format=nv12",
+            "-vsync", "0",
             "-f", "rawvideo",
             "-pix_fmt", "nv12",
             "-"

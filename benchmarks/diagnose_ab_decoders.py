@@ -187,13 +187,25 @@ def run_full_ab_pipeline(clips: List[str]):
         tracks_created = cur.fetchone()[0]
         conn.close()
         
+        total_frames = perf['stages']['decode']['calls']
+        total_dur = 0.0
+        for vf in clips:
+            from src.video_decoder import probe_video_metadata
+            m = probe_video_metadata(vf)
+            total_dur += (m['total_frames'] / m['fps']) if m['fps'] > 0 else 0.0
+        if total_dur == 0.0:
+            total_dur = total_frames / 25.0
+        speed_ratio = round(total_dur / wall_time, 2) if wall_time > 0 else 0.0
+        yolo_avg = round(sum(pipeline.profiler.yolo_latencies) / len(pipeline.profiler.yolo_latencies), 1) if pipeline.profiler.yolo_latencies else 0.0
+
         results[backend] = {
             'run_id': run_id,
             'wall_time': wall_time,
-            'speed_ratio': perf['speed_ratio'],
-            'frames_yielded': perf['source_frames'],
+            'speed_ratio': speed_ratio,
+            'frames_yielded': total_frames,
             'motion_detections': perf['stages']['motion_gate']['calls'],
             'yolo_calls': perf['stages']['vehicle_detection']['calls'],
+            'yolo_avg_ms': yolo_avg,
             'tracks_created': tracks_created,
             'events_count': total_events,
             'decode_sec': perf['stages']['decode']['seconds'],
@@ -211,6 +223,7 @@ def run_full_ab_pipeline(clips: List[str]):
     print(f"{'decoder_frames_yielded':<28} | {cv_r.get('frames_yielded', 0):<20} | {nv_r.get('frames_yielded', 0):<20}")
     print(f"{'motion detections (calls)':<28} | {cv_r.get('motion_detections', 0):<20} | {nv_r.get('motion_detections', 0):<20}")
     print(f"{'YOLO calls':<28} | {cv_r.get('yolo_calls', 0):<20} | {nv_r.get('yolo_calls', 0):<20}")
+    print(f"{'YOLO avg latency (ms)':<28} | {str(cv_r.get('yolo_avg_ms', 0.0)) + ' ms':<20} | {str(nv_r.get('yolo_avg_ms', 0.0)) + ' ms':<20}")
     print(f"{'tracks creados':<28} | {cv_r.get('tracks_created', 0):<20} | {nv_r.get('tracks_created', 0):<20}")
     print(f"{'eventos registrados':<28} | {cv_r.get('events_count', 0):<20} | {nv_r.get('events_count', 0):<20}")
     print(f"{'decode_seconds':<28} | {cv_r.get('decode_sec', 0.0):<20.2f} | {nv_r.get('decode_sec', 0.0):<20.2f}")
@@ -249,6 +262,10 @@ if __name__ == '__main__':
         sys.exit(1)
         
     if args.full_pipeline:
+        # Run diagnostic on critical timestamps first
+        print("🔍 Paso 1/2: Diagnóstico numérico exacto en timestamps críticos (25, 105, 109, 112, 116, 120s)...")
+        run_ab_comparison(clips_found[0])
+        print("🚀 Paso 2/2: Ejecución del pipeline completo sobre ambos clips...")
         run_full_ab_pipeline(clips_found)
     else:
         run_ab_comparison(clips_found[0])
