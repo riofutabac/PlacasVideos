@@ -15,7 +15,7 @@ import time
 import argparse
 import numpy as np
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 # Ensure project root is in path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
