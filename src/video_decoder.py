@@ -187,7 +187,7 @@ class BaseVideoDecoder(ABC):
         self.profiler = profiler
         self.crop_rect = crop_rect
         self.is_cropped = crop_rect is not None
-        self.frame_format: str = "bgr"
+        self._frame_format: str = "bgr"
         self.fps: float = 25.0
         self.width: int = 2960
         self.height: int = 1664
@@ -208,9 +208,17 @@ class BaseVideoDecoder(ABC):
             self.crop_w = self.width
             self.crop_h = self.height
 
+    @property
+    def frame_format(self) -> str:
+        return getattr(self, '_frame_format', 'bgr')
+
+    @frame_format.setter
+    def frame_format(self, value: str):
+        self._frame_format = value
+
     def to_bgr(self, frame: np.ndarray) -> np.ndarray:
         """Converts frame to BGR if frame is in NV12 format; no-op if already BGR."""
-        if getattr(self, 'frame_format', 'bgr') == 'nv12':
+        if self.frame_format == 'nv12':
             h = self.crop_h if self.is_cropped else self.height
             w = self.crop_w if self.is_cropped else self.width
             return nv12_to_bgr_full_range(frame, h, w)
@@ -584,7 +592,13 @@ class NVDECDecoder(BaseVideoDecoder):
 
     @property
     def frame_format(self) -> str:
-        return getattr(self.active_decoder, 'frame_format', 'bgr')
+        return getattr(self.active_decoder, 'frame_format', 'bgr') if hasattr(self, 'active_decoder') else 'bgr'
+
+    @frame_format.setter
+    def frame_format(self, value: str):
+        if hasattr(self, 'active_decoder'):
+            self.active_decoder.frame_format = value
+        self._frame_format = value
 
     def to_bgr(self, frame: np.ndarray) -> np.ndarray:
         return self.active_decoder.to_bgr(frame)
