@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Tuple, List, Optional
 from datetime import datetime
 
-PIPELINE_VERSION = "1.8.1"
+PIPELINE_VERSION = "1.8.2"
 
 def natural_clip_sort_key(filepath: str):
     """Sorts clip filenames numerically (1, 2, ... 10, ... 60, 61) rather than lexicographically."""
@@ -202,29 +202,60 @@ def run_full_pipeline():
         started_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     )
 
-    # Pre-stage videos to local SSD before starting processing benchmark
-    staged_videos = []
-    for vf in video_files:
-        proc_vf, is_temp = stage_video_locally(vf, enabled=not args.no_stage)
-        staged_videos.append((proc_vf, is_temp, vf))
-
     total_events_all = 0
     total_source_frames = 0
     total_duration_sec = 0.0
+    total_processing_wall = 0.0
 
     t_start_wall = time.perf_counter()
 
-    for proc_vf, is_temp, orig_vf in staged_videos:
+    for orig_vf in video_files:
+        proc_vf = orig_vf
+        is_temp = False
         try:
+            # Stage just-in-time to local SSD cache (avoids disk filling and isolates I/O)
+            proc_vf, is_temp = stage_video_locally(orig_vf, enabled=not args.no_stage)
+
             from src.video_decoder import probe_video_metadata
             meta = probe_video_metadata(proc_vf)
             fps = meta['fps']
             frames = meta['total_frames']
-            total_source_frames += frames
-            total_duration_sec += (frames / fps) if fps > 0 else 0.0
+            cur_dur = (frames / fps) if fps > 0 else 0.0
 
+            t_vid_start = time.perf_counter()
             events = pipeline.process_video_file(proc_vf, run_id, original_path=orig_vf)
+            t_vid_elapsed = time.perf_counter() - t_vid_start
+
             total_events_all += len(events)
+            total_source_frames += frames
+            total_duration_sec += cur_dur
+            total_processing_wall += t_vid_elapsed
+
+        except Exception as e:
+            print(f"\n❌ [ERROR EN VIDEO] {os.path.basename(orig_vf)}: {e}")
+            print(f"⚠️ El archivo parece estar dañado o incompleto (ej. 'moov atom not found').")
+            print(f"   Omitiendo este archivo y continuando automáticamente con los siguientes videos...\n")
+            try:
+                pipeline.db.record_clip(
+                    clip_id=os.path.basename(orig_vf),
+                    run_id=run_id,
+                    file_path=orig_vf,
+                    file_hash="",
+                    duration_sec=0.0,
+                    total_frames=0,
+                    events_count=0,
+                    status=f"FAILED: {str(e)[:50]}",
+                    started_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    completed_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    wall_clock_seconds=0.0,
+                    speed_ratio=0.0,
+                    decode_seconds=0.0,
+                    vehicle_detection_seconds=0.0,
+                    plate_detection_seconds=0.0,
+                    ocr_seconds=0.0
+                )
+            except Exception:
+                pass
         finally:
             if is_temp and os.path.exists(proc_vf):
                 try:
@@ -235,7 +266,8 @@ def run_full_pipeline():
     t_total_wall = time.perf_counter() - t_start_wall
     pipeline.profiler.finish(total_source_frames, total_duration_sec)
 
-    speed_ratio = total_duration_sec / t_total_wall if t_total_wall > 0 else 0.0
+    # Compute speed ratio based on pure video processing time
+    speed_ratio = total_duration_sec / total_processing_wall if total_processing_wall > 0 else (total_duration_sec / t_total_wall if t_total_wall > 0 else 0.0)
 
     # Finish run in DB
     pipeline.db.finish_run(

@@ -49,7 +49,7 @@ from src.deduplicator import EventDeduplicator
 from src.db_manager import DatabaseManager
 from src.video_decoder import create_decoder
 
-PIPELINE_VERSION = "1.8.1"
+PIPELINE_VERSION = "1.8.2"
 
 def get_clip_start_datetime(video_filename: str) -> datetime:
     """
