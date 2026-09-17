@@ -33,6 +33,9 @@ from fast_alpr import ALPR
 # Optimize PyTorch CPU threading for dual-core Intel CPU
 torch.set_num_threads(4)
 
+import warnings
+warnings.filterwarnings('ignore', category=FutureWarning)
+
 from src.timer_profiler import PipelineProfiler
 from src.quality_ranker import QualityRanker
 from src.crossing_logic import CrossingFSM
@@ -42,7 +45,7 @@ from src.deduplicator import EventDeduplicator
 from src.db_manager import DatabaseManager
 from src.video_decoder import create_decoder
 
-PIPELINE_VERSION = "1.6.0"
+PIPELINE_VERSION = "1.7.0"
 
 def get_clip_start_datetime(video_filename: str) -> datetime:
     """
@@ -174,9 +177,10 @@ class ALPRPipeline:
 
         # Warmup models on CUDA to eliminate cold-start delay during processing
         if self.device == 'cuda':
+            torch.backends.cudnn.benchmark = True
             try:
                 dummy_frame = np.zeros((self.vehicle_imgsz, self.vehicle_imgsz, 3), dtype=np.uint8)
-                self.vehicle_model(dummy_frame, imgsz=self.vehicle_imgsz, verbose=False, device=self.device)
+                self.vehicle_model(dummy_frame, imgsz=self.vehicle_imgsz, verbose=False, device=self.device, half=True)
                 dummy_crop = np.zeros((120, 240, 3), dtype=np.uint8)
                 self.alpr.predict(dummy_crop)
             except Exception:
@@ -199,7 +203,7 @@ class ALPRPipeline:
 
         self.profiler.start_clip()
         backend_choice = self.cfg.get('video', {}).get('decode_backend', 'auto')
-        queue_sz = self.cfg.get('video', {}).get('decoder_queue_size', 4)
+        queue_sz = self.cfg.get('video', {}).get('decoder_queue_size', 64)
         decoder = create_decoder(
             video_path,
             backend=backend_choice,
@@ -227,6 +231,8 @@ class ALPRPipeline:
         is_dec_cropped = getattr(decoder, 'is_cropped', False)
         is_nv12 = getattr(decoder, 'frame_format', 'bgr') == 'nv12'
         dec_h = decoder.crop_h if is_dec_cropped else decoder.height
+        dec_w = decoder.crop_w if is_dec_cropped else decoder.width
+        bgr_buffer = np.empty((dec_h, dec_w, 3), dtype=np.uint8) if is_nv12 else None
 
         frame_idx = 0
         try:
@@ -246,25 +252,27 @@ class ALPRPipeline:
                 if not run_detector:
                     continue
 
-                # 2. Lazy Full-Range BGR Conversion (ONLY for frames evaluated by YOLO!)
+                # 2. Lazy Full-Range BGR Conversion (reusing preallocated buffer, 1.7 ms)
                 self.profiler.start_stage('frame_conversion')
                 if is_nv12:
                     raw_crop = frame if is_dec_cropped else frame[cy1:cy2, cx1:cx2]
-                    crop_roi = decoder.to_bgr(raw_crop)
+                    crop_roi = decoder.to_bgr(raw_crop, dst=bgr_buffer)
                 else:
                     crop_roi = frame if is_dec_cropped else frame[cy1:cy2, cx1:cx2]
                 self.profiler.stop_stage('frame_conversion')
 
-                # 3. Vehicle Detection (YOLO on Full-Range BGR)
+                # 3. Vehicle Detection (YOLO on Full-Range BGR with FP16 Tensor Cores & inference_mode)
                 self.profiler.start_stage('vehicle_detection')
-                yolo_res = self.vehicle_model(
-                    crop_roi,
-                    imgsz=self.vehicle_imgsz,
-                    verbose=False,
-                    conf=self.vehicle_conf,
-                    classes=self.vehicle_classes,
-                    device=self.device
-                )[0]
+                with torch.inference_mode():
+                    yolo_res = self.vehicle_model(
+                        crop_roi,
+                        imgsz=self.vehicle_imgsz,
+                        verbose=False,
+                        conf=self.vehicle_conf,
+                        classes=self.vehicle_classes,
+                        device=self.device,
+                        half=(self.device == 'cuda')
+                    )[0]
                 self.profiler.stop_stage('vehicle_detection')
     
                 valid_boxes = []
@@ -361,7 +369,7 @@ class ALPRPipeline:
                     state = tracks[trk_id]
                     state.last_timestamp = timestamp
     
-                    veh_crop = crop_roi[max(0, int(ry1)):min(crop_roi.shape[0], int(ry2)), max(0, int(rx1)):min(crop_roi.shape[1], int(rx2))]
+                    veh_crop = crop_roi[max(0, int(ry1)):min(crop_roi.shape[0], int(ry2)), max(0, int(rx1)):min(crop_roi.shape[1], int(rx2))].copy()
 
                     full_h = self.cfg.get('video', {}).get('height', 1664)
                     full_w = self.cfg.get('video', {}).get('width', 2960)

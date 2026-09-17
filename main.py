@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Tuple, List, Optional
 from datetime import datetime
 
-PIPELINE_VERSION = "1.6.0"
+PIPELINE_VERSION = "1.7.0"
 
 def natural_clip_sort_key(filepath: str):
     """Sorts clip filenames numerically (1, 2, ... 10, ... 60, 61) rather than lexicographically."""

@@ -174,11 +174,17 @@ _FULL_TO_BT601_Y_LUT = np.array(
 )
 
 
-def nv12_to_bgr_full_range(nv12: np.ndarray, h: Optional[int] = None, w: Optional[int] = None) -> np.ndarray:
+def nv12_to_bgr_full_range(
+    nv12: np.ndarray,
+    h: Optional[int] = None,
+    w: Optional[int] = None,
+    dst: Optional[np.ndarray] = None
+) -> np.ndarray:
     """
     Converts NV12 (YUV 4:2:0 Full-Range / JPEG) to BGR using OpenCV's AVX2 SIMD kernel.
     Applies an in-place 256-byte LUT to the Y-plane before cv2.COLOR_YUV2BGR_NV12,
     restoring full dynamic range (0-255) with 2.1 ms latency (8-10x faster than software resize+merge).
+    If dst is provided with shape (h, w, 3), reuses buffer without new memory allocation.
     """
     if h is None:
         h = nv12.shape[0] * 2 // 3
@@ -186,6 +192,8 @@ def nv12_to_bgr_full_range(nv12: np.ndarray, h: Optional[int] = None, w: Optiona
         w = nv12.shape[1]
     Y = nv12[:h, :]
     cv2.LUT(Y, _FULL_TO_BT601_Y_LUT, dst=Y)
+    if dst is not None and dst.shape == (h, w, 3) and dst.dtype == np.uint8:
+        return cv2.cvtColor(nv12, cv2.COLOR_YUV2BGR_NV12, dst=dst)
     return cv2.cvtColor(nv12, cv2.COLOR_YUV2BGR_NV12)
 
 
@@ -225,12 +233,12 @@ class BaseVideoDecoder(ABC):
     def frame_format(self, value: str):
         self._frame_format = value
 
-    def to_bgr(self, frame: np.ndarray) -> np.ndarray:
+    def to_bgr(self, frame: np.ndarray, dst: Optional[np.ndarray] = None) -> np.ndarray:
         """Converts frame to BGR if frame is in NV12 format; no-op if already BGR."""
         if self.frame_format == 'nv12':
             h = self.crop_h if self.is_cropped else self.height
             w = self.crop_w if self.is_cropped else self.width
-            return nv12_to_bgr_full_range(frame, h, w)
+            return nv12_to_bgr_full_range(frame, h, w, dst=dst)
         return frame
 
     @abstractmethod
@@ -295,7 +303,7 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
         profiler: Optional[Any] = None,
         nvdec_info: Optional[Dict[str, bool]] = None,
         crop_rect: Optional[Dict[str, int]] = None,
-        queue_size: int = 4
+        queue_size: int = 64
     ):
         super().__init__(video_path, profiler, crop_rect=crop_rect)
         self.frame_format = "nv12"
@@ -554,7 +562,7 @@ class NVDECDecoder(BaseVideoDecoder):
         video_path: str,
         profiler: Optional[Any] = None,
         crop_rect: Optional[Dict[str, int]] = None,
-        queue_size: int = 4
+        queue_size: int = 64
     ):
         super().__init__(video_path, profiler, crop_rect=crop_rect)
         self.nvdec_info = check_nvdec_available()
@@ -609,8 +617,8 @@ class NVDECDecoder(BaseVideoDecoder):
             self.active_decoder.frame_format = value
         self._frame_format = value
 
-    def to_bgr(self, frame: np.ndarray) -> np.ndarray:
-        return self.active_decoder.to_bgr(frame)
+    def to_bgr(self, frame: np.ndarray, dst: Optional[np.ndarray] = None) -> np.ndarray:
+        return self.active_decoder.to_bgr(frame, dst=dst)
 
     def __iter__(self) -> Generator[Tuple[int, float, np.ndarray], None, None]:
         return self.active_decoder.__iter__()
@@ -625,7 +633,7 @@ def create_decoder(
     backend: str = "auto",
     profiler: Optional[Any] = None,
     crop_rect: Optional[Dict[str, int]] = None,
-    queue_size: int = 4
+    queue_size: int = 64
 ) -> BaseVideoDecoder:
     """
     Factory function for video decoders.
