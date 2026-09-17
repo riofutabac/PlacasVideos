@@ -1,0 +1,74 @@
+# Configuración de Cámara, Doble ROI y Pipeline ALPR
+version: "1.0"
+camera_id: "Camara_Placas_2_Pintag"
+
+video:
+  width: 2960
+  height: 1664
+  clock_band_height: 120  # Banda superior del reloj estampado
+
+roi:
+  # 1. Crop rectangular físico (para acelerar la inferencia en YOLO reduciendo FLOPs)
+  crop_rect:
+    x_min: 300
+    y_min: 600
+    x_max: 2600
+    y_max: 1664
+  
+  # 2. Polígono lógico del carril de lastre (coordenadas absolutas en cuadro 2960x1664)
+  polygon_gravel:
+    - [1484, 636]
+    - [1750, 696]
+    - [1854, 858]
+    - [1913, 1066]
+    - [2076, 1302]
+    - [2372, 1554]
+    - [2579, 1664]
+    - [370, 1664]
+    - [340, 1125]
+    - [622, 918]
+    - [1036, 770]
+    - [1332, 681]
+
+  # 3. Línea virtual de cruce extendida para cubrir todo el ancho de la vía en y=1200
+  crossing_line:
+    line_id: "LINE_MAIN_LASTRE"
+    p1: [400, 1200]
+    p2: [2250, 1200]
+    # Sentido: cruzando hacia Y mayor (hacia la cámara) = ENTRADA
+    #          cruzando hacia Y menor (hacia el fondo) = SALIDA
+    direction_increasing_y: "ENTRADA"
+    direction_decreasing_y: "SALIDA"
+
+sampling:
+  sleep_sentinel_fps: 1.0     # Frecuencia del watchdog cuando la zona duerme (1 FPS)
+  preactive_fps: 3.5          # Frecuencia cuando hay movimiento preliminar (3.5 FPS)
+  active_fps: 6.0             # Frecuencia plena cuando hay vehículo en carril (6.0 FPS)
+  active_hold_seconds: 2.5    # Tiempo para sostener ACTIVE tras última detección
+
+models:
+  vehicle_detector:
+    model_name: "yolov8n.pt"
+    imgsz: 416
+    conf_threshold: 0.25
+    classes: [0, 1, 2, 3, 5, 7]     # person, bicycle, car, motorcycle, bus, truck
+  
+  plate_detector:
+    conf_threshold: 0.25
+  
+  ocr:
+    engine: "fast_plate_ocr"
+    model: "cct-xs-v2-global-model"
+
+quality_ranking:
+  top_m_vehicle_frames: 5
+  top_k_plate_crops: 3
+  weights_vehicle:
+    sharpness: 0.35
+    area: 0.35
+    confidence: 0.20
+    border_penalty: 0.10
+
+deduplication:
+  cooldown_seconds: 25.0
+  max_levenshtein: 1

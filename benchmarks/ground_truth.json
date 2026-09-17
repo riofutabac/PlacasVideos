@@ -1,0 +1,90 @@
+[
+  {
+    "ground_truth_id": "GT_60_1",
+    "video_source": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "approx_timestamp": 25.0,
+    "approx_datetime": "2026-09-09 16:17:45",
+    "direction": "ENTRADA",
+    "vehicle_type": "car",
+    "description": "Automovil Chevrolet Aveo gris plomo frontal",
+    "plate_text": "PCW2492",
+    "plate_legible": true
+  },
+  {
+    "ground_truth_id": "GT_60_2",
+    "video_source": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "approx_timestamp": 109.0,
+    "approx_datetime": "2026-09-09 16:19:09",
+    "direction": "SALIDA",
+    "vehicle_type": "truck",
+    "description": "Camion cisterna de agua azul",
+    "plate_text": "PCG3981",
+    "plate_legible": true
+  },
+  {
+    "ground_truth_id": "GT_60_3",
+    "video_source": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "approx_timestamp": 116.0,
+    "approx_datetime": "2026-09-09 16:19:16",
+    "direction": "SALIDA",
+    "vehicle_type": "truck",
+    "description": "Camioneta blanca junto a la cisterna",
+    "plate_text": "TAA2204",
+    "plate_legible": true
+  },
+  {
+    "ground_truth_id": "GT_60_4",
+    "video_source": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "approx_timestamp": 120.0,
+    "approx_datetime": "2026-09-09 16:19:20",
+    "direction": "SALIDA",
+    "vehicle_type": "motorcycle",
+    "description": "Moto junto al convoy",
+    "plate_text": "JU436A",
+    "plate_legible": true
+  },
+  {
+    "ground_truth_id": "GT_60_5",
+    "video_source": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "approx_timestamp": 271.0,
+    "approx_datetime": "2026-09-09 16:21:51",
+    "direction": "SALIDA",
+    "vehicle_type": "truck",
+    "description": "Camioneta 4x4 Great Wall ploma alejandose sin placas",
+    "plate_text": null,
+    "plate_legible": false
+  },
+  {
+    "ground_truth_id": "GT_61_1",
+    "video_source": "Camara Placas 2_20260909105651-20260909163038(61).mp4",
+    "approx_timestamp": 80.0,
+    "approx_datetime": "2026-09-09 16:24:05",
+    "direction": "ENTRADA",
+    "vehicle_type": "bus",
+    "description": "Buseta escolar amarilla CIA TRANS ESCOLAR",
+    "plate_text": "PAC2573",
+    "plate_legible": true
+  },
+  {
+    "ground_truth_id": "GT_61_2",
+    "video_source": "Camara Placas 2_20260909105651-20260909163038(61).mp4",
+    "approx_timestamp": 206.0,
+    "approx_datetime": "2026-09-09 16:26:11",
+    "direction": "ENTRADA",
+    "vehicle_type": "motorcycle",
+    "description": "Motocicleta azul frontal (sin placa delantera)",
+    "plate_text": null,
+    "plate_legible": false
+  },
+  {
+    "ground_truth_id": "GT_61_3",
+    "video_source": "Camara Placas 2_20260909105651-20260909163038(61).mp4",
+    "approx_timestamp": 314.0,
+    "approx_datetime": "2026-09-09 16:27:59",
+    "direction": "ENTRADA",
+    "vehicle_type": "truck",
+    "description": "Camion Hino blanco furgon comercial",
+    "plate_text": "PAB6741",
+    "plate_legible": true
+  }
+]

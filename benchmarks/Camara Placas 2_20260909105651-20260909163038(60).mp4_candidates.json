@@ -1,0 +1,2433 @@
+[
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 360,
+    "timestamp_sec": 14.47,
+    "class": "car",
+    "confidence": 0.521,
+    "bbox": [
+      1469,
+      627,
+      1544,
+      690
+    ],
+    "bottom_center": [
+      1506,
+      690
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 372,
+    "timestamp_sec": 14.95,
+    "class": "car",
+    "confidence": 0.582,
+    "bbox": [
+      1454,
+      628,
+      1541,
+      692
+    ],
+    "bottom_center": [
+      1497,
+      692
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 384,
+    "timestamp_sec": 15.43,
+    "class": "car",
+    "confidence": 0.598,
+    "bbox": [
+      1440,
+      628,
+      1532,
+      697
+    ],
+    "bottom_center": [
+      1486,
+      697
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 396,
+    "timestamp_sec": 15.92,
+    "class": "car",
+    "confidence": 0.514,
+    "bbox": [
+      1418,
+      632,
+      1522,
+      704
+    ],
+    "bottom_center": [
+      1470,
+      704
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 408,
+    "timestamp_sec": 16.4,
+    "class": "car",
+    "confidence": 0.47,
+    "bbox": [
+      1396,
+      633,
+      1503,
+      708
+    ],
+    "bottom_center": [
+      1449,
+      708
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 420,
+    "timestamp_sec": 16.88,
+    "class": "car",
+    "confidence": 0.648,
+    "bbox": [
+      1363,
+      639,
+      1493,
+      718
+    ],
+    "bottom_center": [
+      1428,
+      718
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 432,
+    "timestamp_sec": 17.36,
+    "class": "car",
+    "confidence": 0.718,
+    "bbox": [
+      1333,
+      646,
+      1470,
+      726
+    ],
+    "bottom_center": [
+      1401,
+      726
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 444,
+    "timestamp_sec": 17.85,
+    "class": "car",
+    "confidence": 0.69,
+    "bbox": [
+      1306,
+      648,
+      1452,
+      739
+    ],
+    "bottom_center": [
+      1379,
+      739
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 456,
+    "timestamp_sec": 18.33,
+    "class": "car",
+    "confidence": 0.641,
+    "bbox": [
+      1272,
+      648,
+      1424,
+      742
+    ],
+    "bottom_center": [
+      1348,
+      742
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 468,
+    "timestamp_sec": 18.81,
+    "class": "car",
+    "confidence": 0.764,
+    "bbox": [
+      1246,
+      659,
+      1409,
+      751
+    ],
+    "bottom_center": [
+      1327,
+      751
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 480,
+    "timestamp_sec": 19.29,
+    "class": "car",
+    "confidence": 0.761,
+    "bbox": [
+      1222,
+      663,
+      1381,
+      761
+    ],
+    "bottom_center": [
+      1301,
+      761
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 492,
+    "timestamp_sec": 19.78,
+    "class": "car",
+    "confidence": 0.588,
+    "bbox": [
+      1200,
+      664,
+      1362,
+      765
+    ],
+    "bottom_center": [
+      1281,
+      765
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 504,
+    "timestamp_sec": 20.26,
+    "class": "car",
+    "confidence": 0.691,
+    "bbox": [
+      1180,
+      675,
+      1340,
+      775
+    ],
+    "bottom_center": [
+      1260,
+      775
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 516,
+    "timestamp_sec": 20.74,
+    "class": "car",
+    "confidence": 0.611,
+    "bbox": [
+      1165,
+      673,
+      1328,
+      782
+    ],
+    "bottom_center": [
+      1246,
+      782
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 528,
+    "timestamp_sec": 21.22,
+    "class": "car",
+    "confidence": 0.734,
+    "bbox": [
+      1150,
+      677,
+      1312,
+      794
+    ],
+    "bottom_center": [
+      1231,
+      794
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 540,
+    "timestamp_sec": 21.71,
+    "class": "car",
+    "confidence": 0.52,
+    "bbox": [
+      1127,
+      680,
+      1300,
+      797
+    ],
+    "bottom_center": [
+      1213,
+      797
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 552,
+    "timestamp_sec": 22.19,
+    "class": "car",
+    "confidence": 0.51,
+    "bbox": [
+      1113,
+      683,
+      1284,
+      815
+    ],
+    "bottom_center": [
+      1198,
+      815
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 564,
+    "timestamp_sec": 22.67,
+    "class": "truck",
+    "confidence": 0.507,
+    "bbox": [
+      1096,
+      685,
+      1271,
+      835
+    ],
+    "bottom_center": [
+      1183,
+      835
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 564,
+    "timestamp_sec": 22.67,
+    "class": "car",
+    "confidence": 0.415,
+    "bbox": [
+      1099,
+      685,
+      1271,
+      832
+    ],
+    "bottom_center": [
+      1185,
+      832
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 576,
+    "timestamp_sec": 23.15,
+    "class": "car",
+    "confidence": 0.586,
+    "bbox": [
+      1085,
+      694,
+      1263,
+      849
+    ],
+    "bottom_center": [
+      1174,
+      849
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 576,
+    "timestamp_sec": 23.15,
+    "class": "truck",
+    "confidence": 0.492,
+    "bbox": [
+      1086,
+      694,
+      1263,
+      849
+    ],
+    "bottom_center": [
+      1174,
+      849
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 588,
+    "timestamp_sec": 23.63,
+    "class": "car",
+    "confidence": 0.565,
+    "bbox": [
+      1073,
+      699,
+      1249,
+      864
+    ],
+    "bottom_center": [
+      1161,
+      864
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 588,
+    "timestamp_sec": 23.63,
+    "class": "truck",
+    "confidence": 0.503,
+    "bbox": [
+      1073,
+      699,
+      1255,
+      864
+    ],
+    "bottom_center": [
+      1164,
+      864
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 600,
+    "timestamp_sec": 24.12,
+    "class": "car",
+    "confidence": 0.579,
+    "bbox": [
+      1062,
+      707,
+      1243,
+      879
+    ],
+    "bottom_center": [
+      1152,
+      879
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 612,
+    "timestamp_sec": 24.6,
+    "class": "car",
+    "confidence": 0.597,
+    "bbox": [
+      1051,
+      714,
+      1240,
+      904
+    ],
+    "bottom_center": [
+      1145,
+      904
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 624,
+    "timestamp_sec": 25.08,
+    "class": "car",
+    "confidence": 0.542,
+    "bbox": [
+      1047,
+      725,
+      1250,
+      916
+    ],
+    "bottom_center": [
+      1148,
+      916
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 636,
+    "timestamp_sec": 25.56,
+    "class": "truck",
+    "confidence": 0.576,
+    "bbox": [
+      1033,
+      736,
+      1254,
+      948
+    ],
+    "bottom_center": [
+      1143,
+      948
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 636,
+    "timestamp_sec": 25.56,
+    "class": "car",
+    "confidence": 0.483,
+    "bbox": [
+      1032,
+      734,
+      1254,
+      947
+    ],
+    "bottom_center": [
+      1143,
+      947
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 648,
+    "timestamp_sec": 26.05,
+    "class": "truck",
+    "confidence": 0.663,
+    "bbox": [
+      1020,
+      746,
+      1270,
+      995
+    ],
+    "bottom_center": [
+      1145,
+      995
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 660,
+    "timestamp_sec": 26.53,
+    "class": "car",
+    "confidence": 0.605,
+    "bbox": [
+      1029,
+      754,
+      1318,
+      1039
+    ],
+    "bottom_center": [
+      1173,
+      1039
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 660,
+    "timestamp_sec": 26.53,
+    "class": "truck",
+    "confidence": 0.392,
+    "bbox": [
+      1029,
+      754,
+      1319,
+      1039
+    ],
+    "bottom_center": [
+      1174,
+      1039
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 672,
+    "timestamp_sec": 27.01,
+    "class": "car",
+    "confidence": 0.661,
+    "bbox": [
+      1048,
+      783,
+      1387,
+      1099
+    ],
+    "bottom_center": [
+      1217,
+      1099
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 684,
+    "timestamp_sec": 27.49,
+    "class": "car",
+    "confidence": 0.74,
+    "bbox": [
+      1071,
+      801,
+      1490,
+      1175
+    ],
+    "bottom_center": [
+      1280,
+      1175
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 696,
+    "timestamp_sec": 27.98,
+    "class": "car",
+    "confidence": 0.703,
+    "bbox": [
+      1088,
+      823,
+      1592,
+      1238
+    ],
+    "bottom_center": [
+      1340,
+      1238
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 708,
+    "timestamp_sec": 28.46,
+    "class": "car",
+    "confidence": 0.832,
+    "bbox": [
+      1111,
+      844,
+      1705,
+      1296
+    ],
+    "bottom_center": [
+      1408,
+      1296
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 720,
+    "timestamp_sec": 28.94,
+    "class": "car",
+    "confidence": 0.871,
+    "bbox": [
+      1153,
+      863,
+      1850,
+      1358
+    ],
+    "bottom_center": [
+      1501,
+      1358
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 732,
+    "timestamp_sec": 29.42,
+    "class": "car",
+    "confidence": 0.905,
+    "bbox": [
+      1210,
+      895,
+      2016,
+      1445
+    ],
+    "bottom_center": [
+      1613,
+      1445
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 744,
+    "timestamp_sec": 29.9,
+    "class": "car",
+    "confidence": 0.917,
+    "bbox": [
+      1307,
+      944,
+      2293,
+      1556
+    ],
+    "bottom_center": [
+      1800,
+      1556
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 756,
+    "timestamp_sec": 30.39,
+    "class": "car",
+    "confidence": 0.914,
+    "bbox": [
+      1492,
+      992,
+      2600,
+      1658
+    ],
+    "bottom_center": [
+      2046,
+      1658
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 768,
+    "timestamp_sec": 30.87,
+    "class": "car",
+    "confidence": 0.917,
+    "bbox": [
+      1765,
+      1061,
+      2599,
+      1654
+    ],
+    "bottom_center": [
+      2182,
+      1654
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 780,
+    "timestamp_sec": 31.35,
+    "class": "car",
+    "confidence": 0.809,
+    "bbox": [
+      2142,
+      1165,
+      2599,
+      1650
+    ],
+    "bottom_center": [
+      2370,
+      1650
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2604,
+    "timestamp_sec": 104.67,
+    "class": "truck",
+    "confidence": 0.86,
+    "bbox": [
+      1593,
+      605,
+      2509,
+      1332
+    ],
+    "bottom_center": [
+      2051,
+      1332
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2616,
+    "timestamp_sec": 105.15,
+    "class": "truck",
+    "confidence": 0.891,
+    "bbox": [
+      1456,
+      608,
+      2495,
+      1404
+    ],
+    "bottom_center": [
+      1975,
+      1404
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2628,
+    "timestamp_sec": 105.63,
+    "class": "truck",
+    "confidence": 0.916,
+    "bbox": [
+      1282,
+      606,
+      2451,
+      1451
+    ],
+    "bottom_center": [
+      1866,
+      1451
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2640,
+    "timestamp_sec": 106.11,
+    "class": "truck",
+    "confidence": 0.933,
+    "bbox": [
+      1129,
+      604,
+      2414,
+      1461
+    ],
+    "bottom_center": [
+      1771,
+      1461
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2652,
+    "timestamp_sec": 106.6,
+    "class": "truck",
+    "confidence": 0.903,
+    "bbox": [
+      997,
+      609,
+      2475,
+      1465
+    ],
+    "bottom_center": [
+      1736,
+      1465
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2664,
+    "timestamp_sec": 107.08,
+    "class": "truck",
+    "confidence": 0.905,
+    "bbox": [
+      858,
+      609,
+      2493,
+      1460
+    ],
+    "bottom_center": [
+      1675,
+      1460
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2676,
+    "timestamp_sec": 107.56,
+    "class": "truck",
+    "confidence": 0.896,
+    "bbox": [
+      728,
+      618,
+      2418,
+      1435
+    ],
+    "bottom_center": [
+      1573,
+      1435
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2688,
+    "timestamp_sec": 108.04,
+    "class": "truck",
+    "confidence": 0.85,
+    "bbox": [
+      611,
+      625,
+      2216,
+      1402
+    ],
+    "bottom_center": [
+      1413,
+      1402
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2700,
+    "timestamp_sec": 108.53,
+    "class": "truck",
+    "confidence": 0.892,
+    "bbox": [
+      531,
+      627,
+      2004,
+      1361
+    ],
+    "bottom_center": [
+      1267,
+      1361
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2748,
+    "timestamp_sec": 110.46,
+    "class": "truck",
+    "confidence": 0.893,
+    "bbox": [
+      405,
+      605,
+      1435,
+      1291
+    ],
+    "bottom_center": [
+      920,
+      1291
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2760,
+    "timestamp_sec": 110.94,
+    "class": "truck",
+    "confidence": 0.872,
+    "bbox": [
+      453,
+      607,
+      1311,
+      1235
+    ],
+    "bottom_center": [
+      882,
+      1235
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2772,
+    "timestamp_sec": 111.42,
+    "class": "truck",
+    "confidence": 0.851,
+    "bbox": [
+      482,
+      605,
+      1198,
+      1182
+    ],
+    "bottom_center": [
+      840,
+      1182
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2784,
+    "timestamp_sec": 111.9,
+    "class": "truck",
+    "confidence": 0.869,
+    "bbox": [
+      534,
+      604,
+      1121,
+      1143
+    ],
+    "bottom_center": [
+      827,
+      1143
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2796,
+    "timestamp_sec": 112.38,
+    "class": "truck",
+    "confidence": 0.496,
+    "bbox": [
+      565,
+      608,
+      1045,
+      1108
+    ],
+    "bottom_center": [
+      805,
+      1108
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2844,
+    "timestamp_sec": 114.31,
+    "class": "car",
+    "confidence": 0.613,
+    "bbox": [
+      1586,
+      767,
+      2439,
+      1227
+    ],
+    "bottom_center": [
+      2012,
+      1227
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2856,
+    "timestamp_sec": 114.8,
+    "class": "car",
+    "confidence": 0.548,
+    "bbox": [
+      1509,
+      766,
+      2410,
+      1221
+    ],
+    "bottom_center": [
+      1959,
+      1221
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2856,
+    "timestamp_sec": 114.8,
+    "class": "truck",
+    "confidence": 0.465,
+    "bbox": [
+      1510,
+      641,
+      2412,
+      1219
+    ],
+    "bottom_center": [
+      1961,
+      1219
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2856,
+    "timestamp_sec": 114.8,
+    "class": "truck",
+    "confidence": 0.457,
+    "bbox": [
+      631,
+      614,
+      1023,
+      957
+    ],
+    "bottom_center": [
+      827,
+      957
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2868,
+    "timestamp_sec": 115.28,
+    "class": "car",
+    "confidence": 0.623,
+    "bbox": [
+      1417,
+      786,
+      2382,
+      1212
+    ],
+    "bottom_center": [
+      1899,
+      1212
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2868,
+    "timestamp_sec": 115.28,
+    "class": "truck",
+    "confidence": 0.511,
+    "bbox": [
+      1419,
+      789,
+      2391,
+      1211
+    ],
+    "bottom_center": [
+      1905,
+      1211
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2880,
+    "timestamp_sec": 115.76,
+    "class": "truck",
+    "confidence": 0.724,
+    "bbox": [
+      1289,
+      800,
+      2257,
+      1187
+    ],
+    "bottom_center": [
+      1773,
+      1187
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2880,
+    "timestamp_sec": 115.76,
+    "class": "truck",
+    "confidence": 0.584,
+    "bbox": [
+      660,
+      611,
+      1081,
+      919
+    ],
+    "bottom_center": [
+      870,
+      919
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2892,
+    "timestamp_sec": 116.24,
+    "class": "truck",
+    "confidence": 0.793,
+    "bbox": [
+      1176,
+      802,
+      2133,
+      1178
+    ],
+    "bottom_center": [
+      1654,
+      1178
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2892,
+    "timestamp_sec": 116.24,
+    "class": "truck",
+    "confidence": 0.689,
+    "bbox": [
+      719,
+      608,
+      1108,
+      909
+    ],
+    "bottom_center": [
+      913,
+      909
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2904,
+    "timestamp_sec": 116.73,
+    "class": "truck",
+    "confidence": 0.671,
+    "bbox": [
+      752,
+      609,
+      1137,
+      879
+    ],
+    "bottom_center": [
+      944,
+      879
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2904,
+    "timestamp_sec": 116.73,
+    "class": "truck",
+    "confidence": 0.579,
+    "bbox": [
+      1101,
+      792,
+      1999,
+      1162
+    ],
+    "bottom_center": [
+      1550,
+      1162
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2904,
+    "timestamp_sec": 116.73,
+    "class": "car",
+    "confidence": 0.538,
+    "bbox": [
+      1097,
+      791,
+      2000,
+      1162
+    ],
+    "bottom_center": [
+      1548,
+      1162
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2916,
+    "timestamp_sec": 117.21,
+    "class": "truck",
+    "confidence": 0.637,
+    "bbox": [
+      791,
+      606,
+      1165,
+      868
+    ],
+    "bottom_center": [
+      978,
+      868
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2916,
+    "timestamp_sec": 117.21,
+    "class": "car",
+    "confidence": 0.439,
+    "bbox": [
+      1048,
+      784,
+      1891,
+      1154
+    ],
+    "bottom_center": [
+      1469,
+      1154
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2916,
+    "timestamp_sec": 117.21,
+    "class": "truck",
+    "confidence": 0.373,
+    "bbox": [
+      1048,
+      786,
+      1894,
+      1154
+    ],
+    "bottom_center": [
+      1471,
+      1154
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2928,
+    "timestamp_sec": 117.69,
+    "class": "truck",
+    "confidence": 0.713,
+    "bbox": [
+      835,
+      602,
+      1193,
+      845
+    ],
+    "bottom_center": [
+      1014,
+      845
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2928,
+    "timestamp_sec": 117.69,
+    "class": "car",
+    "confidence": 0.625,
+    "bbox": [
+      1018,
+      775,
+      1797,
+      1132
+    ],
+    "bottom_center": [
+      1407,
+      1132
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2928,
+    "timestamp_sec": 117.69,
+    "class": "truck",
+    "confidence": 0.395,
+    "bbox": [
+      1019,
+      776,
+      1807,
+      1131
+    ],
+    "bottom_center": [
+      1413,
+      1131
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2940,
+    "timestamp_sec": 118.17,
+    "class": "car",
+    "confidence": 0.781,
+    "bbox": [
+      991,
+      763,
+      1715,
+      1112
+    ],
+    "bottom_center": [
+      1353,
+      1112
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2940,
+    "timestamp_sec": 118.17,
+    "class": "truck",
+    "confidence": 0.701,
+    "bbox": [
+      873,
+      600,
+      1218,
+      838
+    ],
+    "bottom_center": [
+      1045,
+      838
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2952,
+    "timestamp_sec": 118.65,
+    "class": "truck",
+    "confidence": 0.577,
+    "bbox": [
+      976,
+      761,
+      1595,
+      1079
+    ],
+    "bottom_center": [
+      1285,
+      1079
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2952,
+    "timestamp_sec": 118.65,
+    "class": "car",
+    "confidence": 0.418,
+    "bbox": [
+      979,
+      762,
+      1597,
+      1078
+    ],
+    "bottom_center": [
+      1288,
+      1078
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2952,
+    "timestamp_sec": 118.65,
+    "class": "truck",
+    "confidence": 0.391,
+    "bbox": [
+      916,
+      600,
+      1244,
+      779
+    ],
+    "bottom_center": [
+      1080,
+      779
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2964,
+    "timestamp_sec": 119.14,
+    "class": "car",
+    "confidence": 0.819,
+    "bbox": [
+      992,
+      745,
+      1496,
+      1038
+    ],
+    "bottom_center": [
+      1244,
+      1038
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2976,
+    "timestamp_sec": 119.62,
+    "class": "truck",
+    "confidence": 0.382,
+    "bbox": [
+      996,
+      604,
+      1421,
+      1005
+    ],
+    "bottom_center": [
+      1208,
+      1005
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2988,
+    "timestamp_sec": 120.1,
+    "class": "motorcycle",
+    "confidence": 0.595,
+    "bbox": [
+      1943,
+      1054,
+      2316,
+      1479
+    ],
+    "bottom_center": [
+      2129,
+      1479
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 2988,
+    "timestamp_sec": 120.1,
+    "class": "truck",
+    "confidence": 0.448,
+    "bbox": [
+      1018,
+      603,
+      1361,
+      993
+    ],
+    "bottom_center": [
+      1189,
+      993
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 3000,
+    "timestamp_sec": 120.58,
+    "class": "motorcycle",
+    "confidence": 0.76,
+    "bbox": [
+      1608,
+      1160,
+      2102,
+      1586
+    ],
+    "bottom_center": [
+      1855,
+      1586
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 3000,
+    "timestamp_sec": 120.58,
+    "class": "truck",
+    "confidence": 0.392,
+    "bbox": [
+      1041,
+      600,
+      1365,
+      761
+    ],
+    "bottom_center": [
+      1203,
+      761
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 3012,
+    "timestamp_sec": 121.07,
+    "class": "motorcycle",
+    "confidence": 0.826,
+    "bbox": [
+      1142,
+      1170,
+      1817,
+      1617
+    ],
+    "bottom_center": [
+      1479,
+      1617
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 3024,
+    "timestamp_sec": 121.55,
+    "class": "motorcycle",
+    "confidence": 0.796,
+    "bbox": [
+      776,
+      1209,
+      1403,
+      1579
+    ],
+    "bottom_center": [
+      1089,
+      1579
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 3024,
+    "timestamp_sec": 121.55,
+    "class": "car",
+    "confidence": 0.358,
+    "bbox": [
+      1083,
+      703,
+      1300,
+      911
+    ],
+    "bottom_center": [
+      1191,
+      911
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 3036,
+    "timestamp_sec": 122.03,
+    "class": "motorcycle",
+    "confidence": 0.847,
+    "bbox": [
+      553,
+      1094,
+      1009,
+      1531
+    ],
+    "bottom_center": [
+      781,
+      1531
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 3048,
+    "timestamp_sec": 122.51,
+    "class": "motorcycle",
+    "confidence": 0.537,
+    "bbox": [
+      493,
+      1093,
+      739,
+      1420
+    ],
+    "bottom_center": [
+      616,
+      1420
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 3060,
+    "timestamp_sec": 123.0,
+    "class": "car",
+    "confidence": 0.4,
+    "bbox": [
+      1154,
+      699,
+      1331,
+      855
+    ],
+    "bottom_center": [
+      1242,
+      855
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 3096,
+    "timestamp_sec": 124.44,
+    "class": "motorcycle",
+    "confidence": 0.387,
+    "bbox": [
+      739,
+      889,
+      884,
+      1046
+    ],
+    "bottom_center": [
+      811,
+      1046
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 3108,
+    "timestamp_sec": 124.93,
+    "class": "truck",
+    "confidence": 0.391,
+    "bbox": [
+      1250,
+      665,
+      1475,
+      794
+    ],
+    "bottom_center": [
+      1362,
+      794
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 3120,
+    "timestamp_sec": 125.41,
+    "class": "truck",
+    "confidence": 0.432,
+    "bbox": [
+      1271,
+      669,
+      1486,
+      789
+    ],
+    "bottom_center": [
+      1378,
+      789
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 3132,
+    "timestamp_sec": 125.89,
+    "class": "car",
+    "confidence": 0.481,
+    "bbox": [
+      1293,
+      670,
+      1504,
+      793
+    ],
+    "bottom_center": [
+      1398,
+      793
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 3132,
+    "timestamp_sec": 125.89,
+    "class": "truck",
+    "confidence": 0.433,
+    "bbox": [
+      1289,
+      670,
+      1502,
+      793
+    ],
+    "bottom_center": [
+      1395,
+      793
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 3144,
+    "timestamp_sec": 126.37,
+    "class": "truck",
+    "confidence": 0.509,
+    "bbox": [
+      1311,
+      671,
+      1514,
+      782
+    ],
+    "bottom_center": [
+      1412,
+      782
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 3144,
+    "timestamp_sec": 126.37,
+    "class": "motorcycle",
+    "confidence": 0.455,
+    "bbox": [
+      1001,
+      765,
+      1063,
+      854
+    ],
+    "bottom_center": [
+      1032,
+      854
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 3192,
+    "timestamp_sec": 128.3,
+    "class": "car",
+    "confidence": 0.374,
+    "bbox": [
+      1394,
+      667,
+      1508,
+      755
+    ],
+    "bottom_center": [
+      1451,
+      755
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 3204,
+    "timestamp_sec": 128.78,
+    "class": "car",
+    "confidence": 0.453,
+    "bbox": [
+      1408,
+      652,
+      1523,
+      741
+    ],
+    "bottom_center": [
+      1465,
+      741
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 3216,
+    "timestamp_sec": 129.27,
+    "class": "car",
+    "confidence": 0.376,
+    "bbox": [
+      1424,
+      646,
+      1529,
+      729
+    ],
+    "bottom_center": [
+      1476,
+      729
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 3252,
+    "timestamp_sec": 130.71,
+    "class": "truck",
+    "confidence": 0.422,
+    "bbox": [
+      1460,
+      640,
+      1582,
+      725
+    ],
+    "bottom_center": [
+      1521,
+      725
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6672,
+    "timestamp_sec": 268.18,
+    "class": "car",
+    "confidence": 0.41,
+    "bbox": [
+      1577,
+      770,
+      2408,
+      1384
+    ],
+    "bottom_center": [
+      1992,
+      1384
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6684,
+    "timestamp_sec": 268.66,
+    "class": "car",
+    "confidence": 0.722,
+    "bbox": [
+      1462,
+      782,
+      2350,
+      1435
+    ],
+    "bottom_center": [
+      1906,
+      1435
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6696,
+    "timestamp_sec": 269.14,
+    "class": "car",
+    "confidence": 0.849,
+    "bbox": [
+      1360,
+      792,
+      2340,
+      1449
+    ],
+    "bottom_center": [
+      1850,
+      1449
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6708,
+    "timestamp_sec": 269.63,
+    "class": "car",
+    "confidence": 0.923,
+    "bbox": [
+      1232,
+      795,
+      2314,
+      1461
+    ],
+    "bottom_center": [
+      1773,
+      1461
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6720,
+    "timestamp_sec": 270.11,
+    "class": "car",
+    "confidence": 0.888,
+    "bbox": [
+      1087,
+      822,
+      2285,
+      1468
+    ],
+    "bottom_center": [
+      1686,
+      1468
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6732,
+    "timestamp_sec": 270.59,
+    "class": "car",
+    "confidence": 0.868,
+    "bbox": [
+      918,
+      833,
+      2207,
+      1453
+    ],
+    "bottom_center": [
+      1562,
+      1453
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6744,
+    "timestamp_sec": 271.07,
+    "class": "car",
+    "confidence": 0.87,
+    "bbox": [
+      780,
+      836,
+      2103,
+      1426
+    ],
+    "bottom_center": [
+      1441,
+      1426
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6756,
+    "timestamp_sec": 271.56,
+    "class": "car",
+    "confidence": 0.772,
+    "bbox": [
+      662,
+      839,
+      1963,
+      1379
+    ],
+    "bottom_center": [
+      1312,
+      1379
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6768,
+    "timestamp_sec": 272.04,
+    "class": "truck",
+    "confidence": 0.626,
+    "bbox": [
+      581,
+      840,
+      1824,
+      1363
+    ],
+    "bottom_center": [
+      1202,
+      1363
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6780,
+    "timestamp_sec": 272.52,
+    "class": "car",
+    "confidence": 0.808,
+    "bbox": [
+      524,
+      833,
+      1672,
+      1372
+    ],
+    "bottom_center": [
+      1098,
+      1372
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6816,
+    "timestamp_sec": 273.97,
+    "class": "car",
+    "confidence": 0.825,
+    "bbox": [
+      490,
+      811,
+      1279,
+      1262
+    ],
+    "bottom_center": [
+      884,
+      1262
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6828,
+    "timestamp_sec": 274.45,
+    "class": "car",
+    "confidence": 0.795,
+    "bbox": [
+      510,
+      797,
+      1149,
+      1219
+    ],
+    "bottom_center": [
+      829,
+      1219
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6840,
+    "timestamp_sec": 274.93,
+    "class": "car",
+    "confidence": 0.812,
+    "bbox": [
+      545,
+      786,
+      1038,
+      1158
+    ],
+    "bottom_center": [
+      791,
+      1158
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6852,
+    "timestamp_sec": 275.41,
+    "class": "truck",
+    "confidence": 0.511,
+    "bbox": [
+      595,
+      776,
+      949,
+      1112
+    ],
+    "bottom_center": [
+      772,
+      1112
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6852,
+    "timestamp_sec": 275.41,
+    "class": "car",
+    "confidence": 0.49,
+    "bbox": [
+      597,
+      781,
+      952,
+      1112
+    ],
+    "bottom_center": [
+      774,
+      1112
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6864,
+    "timestamp_sec": 275.9,
+    "class": "car",
+    "confidence": 0.556,
+    "bbox": [
+      613,
+      758,
+      917,
+      1072
+    ],
+    "bottom_center": [
+      765,
+      1072
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6864,
+    "timestamp_sec": 275.9,
+    "class": "truck",
+    "confidence": 0.487,
+    "bbox": [
+      614,
+      757,
+      919,
+      1076
+    ],
+    "bottom_center": [
+      766,
+      1076
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6876,
+    "timestamp_sec": 276.38,
+    "class": "car",
+    "confidence": 0.466,
+    "bbox": [
+      624,
+      742,
+      969,
+      1022
+    ],
+    "bottom_center": [
+      796,
+      1022
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6888,
+    "timestamp_sec": 276.86,
+    "class": "car",
+    "confidence": 0.625,
+    "bbox": [
+      662,
+      731,
+      1027,
+      979
+    ],
+    "bottom_center": [
+      844,
+      979
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6900,
+    "timestamp_sec": 277.34,
+    "class": "car",
+    "confidence": 0.363,
+    "bbox": [
+      716,
+      711,
+      1086,
+      955
+    ],
+    "bottom_center": [
+      901,
+      955
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6912,
+    "timestamp_sec": 277.83,
+    "class": "truck",
+    "confidence": 0.583,
+    "bbox": [
+      772,
+      696,
+      1147,
+      926
+    ],
+    "bottom_center": [
+      959,
+      926
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6912,
+    "timestamp_sec": 277.83,
+    "class": "car",
+    "confidence": 0.393,
+    "bbox": [
+      773,
+      695,
+      1147,
+      921
+    ],
+    "bottom_center": [
+      960,
+      921
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6924,
+    "timestamp_sec": 278.31,
+    "class": "truck",
+    "confidence": 0.466,
+    "bbox": [
+      842,
+      688,
+      1206,
+      898
+    ],
+    "bottom_center": [
+      1024,
+      898
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6924,
+    "timestamp_sec": 278.31,
+    "class": "car",
+    "confidence": 0.412,
+    "bbox": [
+      842,
+      687,
+      1206,
+      897
+    ],
+    "bottom_center": [
+      1024,
+      897
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6936,
+    "timestamp_sec": 278.79,
+    "class": "car",
+    "confidence": 0.552,
+    "bbox": [
+      912,
+      679,
+      1263,
+      869
+    ],
+    "bottom_center": [
+      1087,
+      869
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6936,
+    "timestamp_sec": 278.79,
+    "class": "truck",
+    "confidence": 0.415,
+    "bbox": [
+      911,
+      680,
+      1263,
+      868
+    ],
+    "bottom_center": [
+      1087,
+      868
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6948,
+    "timestamp_sec": 279.27,
+    "class": "car",
+    "confidence": 0.8,
+    "bbox": [
+      973,
+      671,
+      1308,
+      850
+    ],
+    "bottom_center": [
+      1140,
+      850
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6960,
+    "timestamp_sec": 279.76,
+    "class": "car",
+    "confidence": 0.588,
+    "bbox": [
+      1026,
+      663,
+      1347,
+      831
+    ],
+    "bottom_center": [
+      1186,
+      831
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6972,
+    "timestamp_sec": 280.24,
+    "class": "car",
+    "confidence": 0.603,
+    "bbox": [
+      1080,
+      658,
+      1386,
+      822
+    ],
+    "bottom_center": [
+      1233,
+      822
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6984,
+    "timestamp_sec": 280.72,
+    "class": "car",
+    "confidence": 0.713,
+    "bbox": [
+      1120,
+      654,
+      1405,
+      808
+    ],
+    "bottom_center": [
+      1262,
+      808
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6996,
+    "timestamp_sec": 281.2,
+    "class": "truck",
+    "confidence": 0.532,
+    "bbox": [
+      1159,
+      652,
+      1430,
+      794
+    ],
+    "bottom_center": [
+      1294,
+      794
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 6996,
+    "timestamp_sec": 281.2,
+    "class": "car",
+    "confidence": 0.529,
+    "bbox": [
+      1162,
+      653,
+      1430,
+      795
+    ],
+    "bottom_center": [
+      1296,
+      795
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 7008,
+    "timestamp_sec": 281.68,
+    "class": "truck",
+    "confidence": 0.657,
+    "bbox": [
+      1197,
+      650,
+      1455,
+      790
+    ],
+    "bottom_center": [
+      1326,
+      790
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 7020,
+    "timestamp_sec": 282.17,
+    "class": "car",
+    "confidence": 0.64,
+    "bbox": [
+      1233,
+      650,
+      1478,
+      783
+    ],
+    "bottom_center": [
+      1355,
+      783
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 7032,
+    "timestamp_sec": 282.65,
+    "class": "car",
+    "confidence": 0.49,
+    "bbox": [
+      1274,
+      644,
+      1484,
+      765
+    ],
+    "bottom_center": [
+      1379,
+      765
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 7032,
+    "timestamp_sec": 282.65,
+    "class": "truck",
+    "confidence": 0.364,
+    "bbox": [
+      1272,
+      641,
+      1489,
+      770
+    ],
+    "bottom_center": [
+      1380,
+      770
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 7044,
+    "timestamp_sec": 283.13,
+    "class": "car",
+    "confidence": 0.517,
+    "bbox": [
+      1309,
+      640,
+      1516,
+      762
+    ],
+    "bottom_center": [
+      1412,
+      762
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 7056,
+    "timestamp_sec": 283.61,
+    "class": "car",
+    "confidence": 0.389,
+    "bbox": [
+      1335,
+      643,
+      1494,
+      760
+    ],
+    "bottom_center": [
+      1414,
+      760
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 7068,
+    "timestamp_sec": 284.1,
+    "class": "truck",
+    "confidence": 0.379,
+    "bbox": [
+      1362,
+      633,
+      1546,
+      742
+    ],
+    "bottom_center": [
+      1454,
+      742
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 7080,
+    "timestamp_sec": 284.58,
+    "class": "truck",
+    "confidence": 0.418,
+    "bbox": [
+      1390,
+      631,
+      1562,
+      735
+    ],
+    "bottom_center": [
+      1476,
+      735
+    ]
+  },
+  {
+    "video": "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "frame_idx": 7092,
+    "timestamp_sec": 285.06,
+    "class": "car",
+    "confidence": 0.62,
+    "bbox": [
+      1413,
+      624,
+      1574,
+      722
+    ],
+    "bottom_center": [
+      1493,
+      722
+    ]
+  }
+]

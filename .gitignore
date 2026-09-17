@@ -1,0 +1,40 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Video files (too large for GitHub)
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.zip
+*.tar.gz
+
+# Data & Evidence artifacts
+data/*.sqlite
+data/*.sqlite-journal
+data/*.db
+evidence/plates/*
+!evidence/plates/.gitkeep
+evidence/vehicles/*
+!evidence/vehicles/.gitkeep
+reports/*.xlsx
+!reports/.gitkeep
+
+# Model weights (auto-downloaded by ultralytics)
+*.pt
+*.onnx
+
+# Temporary / OS / local files
+.DS_Store
+Thumbs.db
+gitingest-ingest/
+benchmarks/ground_truth_candidates/
+benchmarks/*.jpg
