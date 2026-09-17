@@ -50,7 +50,7 @@ sampling:
 
 models:
   vehicle_detector:
-    model_name: "yolov8n.pt"
+    model_name: "yolov8n.onnx"
     imgsz: 416
     conf_threshold: 0.25
     classes: [0, 1, 2, 3, 5, 7]     # person, bicycle, car, motorcycle, bus, truck

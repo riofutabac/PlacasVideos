@@ -49,7 +49,7 @@ from src.deduplicator import EventDeduplicator
 from src.db_manager import DatabaseManager
 from src.video_decoder import create_decoder
 
-PIPELINE_VERSION = "1.7.1"
+PIPELINE_VERSION = "1.8.0"
 
 def get_clip_start_datetime(video_filename: str) -> datetime:
     """
@@ -151,10 +151,32 @@ class ALPRPipeline:
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         alpr_providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if torch.cuda.is_available() else ['CPUExecutionProvider']
 
-        print(f"Loading vehicle detector (YOLOv8n) on device='{self.device}'...")
         m_veh = self.cfg['models']['vehicle_detector']
-        self.vehicle_model = YOLO(m_veh.get('model_name', 'yolov8n.pt'))
+        model_name = m_veh.get('model_name', 'yolov8n.onnx')
         self.vehicle_imgsz = m_veh.get('imgsz', 416)
+
+        # Ensure ONNX model exists; auto-export from .pt if missing
+        if model_name.endswith('.onnx') and not os.path.exists(model_name):
+            pt_name = model_name.replace('.onnx', '.pt')
+            if os.path.exists(pt_name):
+                print(f"⚡ [Model Export] Exportando {pt_name} a ONNX ({model_name}) para aceleración CUDA...")
+                try:
+                    YOLO(pt_name).export(format='onnx', imgsz=self.vehicle_imgsz, dynamic=True)
+                except Exception as e:
+                    print(f"⚠️ Error al exportar ONNX ({e}). Usando {pt_name}.")
+                    model_name = pt_name
+            elif os.path.exists('yolov8n.pt'):
+                print(f"⚡ [Model Export] Exportando yolov8n.pt a {model_name}...")
+                try:
+                    YOLO('yolov8n.pt').export(format='onnx', imgsz=self.vehicle_imgsz, dynamic=True)
+                except Exception as e:
+                    print(f"⚠️ Error al exportar ONNX ({e}). Usando yolov8n.pt.")
+                    model_name = 'yolov8n.pt'
+            else:
+                model_name = 'yolov8n.pt'
+
+        print(f"Loading vehicle detector ({model_name}) on device='{self.device}'...")
+        self.vehicle_model = YOLO(model_name)
         self.vehicle_classes = m_veh.get('classes', [0, 1, 2, 3, 5, 7])
         self.vehicle_conf = m_veh.get('conf_threshold', 0.25)
 
@@ -169,7 +191,7 @@ class ALPRPipeline:
         )
 
         self.model_versions = {
-            'vehicle_detector': f"{m_veh.get('model_name', 'yolov8n.pt')} (imgsz={self.vehicle_imgsz}, device={self.device})",
+            'vehicle_detector': f"{model_name} (imgsz={self.vehicle_imgsz}, device={self.device})",
             'plate_detector': f"yolo-v9-t-512-license-plate-end2end ({self.device.upper()})",
             'ocr_engine': f"cct-xs-v2-global-model ({self.device.upper()})"
         }

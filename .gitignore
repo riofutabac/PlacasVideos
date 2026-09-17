@@ -31,6 +31,7 @@ reports/*.xlsx
 # Model weights (auto-downloaded by ultralytics)
 *.pt
 *.onnx
+!yolov8n.onnx
 
 # Temporary / OS / local files
 .DS_Store
