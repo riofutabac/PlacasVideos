@@ -49,7 +49,7 @@ from src.deduplicator import EventDeduplicator
 from src.db_manager import DatabaseManager
 from src.video_decoder import create_decoder
 
-PIPELINE_VERSION = "1.8.0"
+PIPELINE_VERSION = "1.8.1"
 
 def get_clip_start_datetime(video_filename: str) -> datetime:
     """
@@ -229,7 +229,7 @@ class ALPRPipeline:
 
         self.profiler.start_clip()
         backend_choice = self.cfg.get('video', {}).get('decode_backend', 'auto')
-        queue_sz = self.cfg.get('video', {}).get('decoder_queue_size', 64)
+        queue_sz = self.cfg.get('video', {}).get('decoder_queue_size', 128)
         decoder = create_decoder(
             video_path,
             backend=backend_choice,

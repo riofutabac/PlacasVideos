@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Tuple, List, Optional
 from datetime import datetime
 
-PIPELINE_VERSION = "1.8.0"
+PIPELINE_VERSION = "1.8.1"
 
 def natural_clip_sort_key(filepath: str):
     """Sorts clip filenames numerically (1, 2, ... 10, ... 60, 61) rather than lexicographically."""
@@ -202,14 +202,19 @@ def run_full_pipeline():
         started_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     )
 
+    # Pre-stage videos to local SSD before starting processing benchmark
+    staged_videos = []
+    for vf in video_files:
+        proc_vf, is_temp = stage_video_locally(vf, enabled=not args.no_stage)
+        staged_videos.append((proc_vf, is_temp, vf))
+
     total_events_all = 0
     total_source_frames = 0
     total_duration_sec = 0.0
 
     t_start_wall = time.perf_counter()
 
-    for vf in video_files:
-        proc_vf, is_temp = stage_video_locally(vf, enabled=not args.no_stage)
+    for proc_vf, is_temp, orig_vf in staged_videos:
         try:
             from src.video_decoder import probe_video_metadata
             meta = probe_video_metadata(proc_vf)
@@ -218,7 +223,7 @@ def run_full_pipeline():
             total_source_frames += frames
             total_duration_sec += (frames / fps) if fps > 0 else 0.0
 
-            events = pipeline.process_video_file(proc_vf, run_id, original_path=vf)
+            events = pipeline.process_video_file(proc_vf, run_id, original_path=orig_vf)
             total_events_all += len(events)
         finally:
             if is_temp and os.path.exists(proc_vf):

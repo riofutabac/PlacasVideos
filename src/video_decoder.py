@@ -303,7 +303,7 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
         profiler: Optional[Any] = None,
         nvdec_info: Optional[Dict[str, bool]] = None,
         crop_rect: Optional[Dict[str, int]] = None,
-        queue_size: int = 64
+        queue_size: int = 128
     ):
         super().__init__(video_path, profiler, crop_rect=crop_rect)
         self.frame_format = "nv12"
@@ -562,7 +562,7 @@ class NVDECDecoder(BaseVideoDecoder):
         video_path: str,
         profiler: Optional[Any] = None,
         crop_rect: Optional[Dict[str, int]] = None,
-        queue_size: int = 64
+        queue_size: int = 128
     ):
         super().__init__(video_path, profiler, crop_rect=crop_rect)
         self.nvdec_info = check_nvdec_available()
@@ -633,7 +633,7 @@ def create_decoder(
     backend: str = "auto",
     profiler: Optional[Any] = None,
     crop_rect: Optional[Dict[str, int]] = None,
-    queue_size: int = 64
+    queue_size: int = 128
 ) -> BaseVideoDecoder:
     """
     Factory function for video decoders.
