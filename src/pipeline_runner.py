@@ -169,13 +169,15 @@ class ALPRPipeline:
         # Directories
         os.makedirs("evidence/vehicles", exist_ok=True)
         os.makedirs("evidence/plates", exist_ok=True)
+        cv2.setNumThreads(cv2.getNumberOfCPUs())
 
     def is_point_in_gravel(self, point: Tuple[int, int]) -> bool:
         return cv2.pointPolygonTest(self.poly_gravel, (float(point[0]), float(point[1])), False) >= 0
 
-    def process_video_file(self, video_path: str, run_id: str, force_reprocess: bool = True) -> List[Dict]:
-        clip_id = os.path.basename(video_path)
-        clip_start_dt = get_clip_start_datetime(video_path)
+    def process_video_file(self, video_path: str, run_id: str, force_reprocess: bool = True, original_path: Optional[str] = None) -> List[Dict]:
+        display_path = original_path if original_path else video_path
+        clip_id = os.path.basename(display_path)
+        clip_start_dt = get_clip_start_datetime(display_path)
         started_at_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Starting video processing: {clip_id} (Ref Time: {clip_start_dt.strftime('%Y-%m-%d %H:%M:%S')})")
         
@@ -400,7 +402,7 @@ class ALPRPipeline:
         self.db.record_clip(
             clip_id=clip_id,
             run_id=run_id,
-            file_path=video_path,
+            file_path=display_path,
             file_hash=file_hash,
             duration_sec=duration_sec,
             total_frames=frame_idx,

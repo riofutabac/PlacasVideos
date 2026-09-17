@@ -10,11 +10,13 @@ import os
 import sys
 import glob
 import time
+import shutil
 import argparse
 from pathlib import Path
+from typing import Tuple, List, Optional
 from datetime import datetime
 
-PIPELINE_VERSION = "1.0.0"
+PIPELINE_VERSION = "1.1.0"
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -32,6 +34,11 @@ def parse_args():
         type=int,
         default=None,
         help="Límite máximo de videos a procesar en esta corrida"
+    )
+    parser.add_argument(
+        "--no-stage",
+        action="store_true",
+        help="Desactivar copiado temporal a SSD local antes de decodificar"
     )
     return parser.parse_args()
 
@@ -81,6 +88,40 @@ def resolve_video_files(source_arg):
             return drive_videos
 
     return []
+
+def stage_video_locally(src_path: str, enabled: bool = True, stage_dir: str = "/content/ssd_video_cache") -> Tuple[str, bool]:
+    """
+    If the video is on a Google Drive / remote FUSE mount, stages it to the local fast SSD
+    to eliminate network decode stalls.
+    Returns (path_to_process, is_temporary).
+    """
+    if not enabled:
+        return src_path, False
+
+    abs_src = os.path.abspath(src_path)
+    is_drive = "/content/drive" in abs_src
+    force_stage = os.environ.get("STAGE_SSD", "").lower() in ("1", "true", "yes")
+
+    if is_drive or force_stage:
+        try:
+            os.makedirs(stage_dir, exist_ok=True)
+            filename = os.path.basename(src_path)
+            dst_path = os.path.join(stage_dir, filename)
+            if abs_src != os.path.abspath(dst_path):
+                t0 = time.perf_counter()
+                size_bytes = os.path.getsize(src_path)
+                size_mb = size_bytes / (1024 * 1024)
+                print(f"⚡ [SSD Staging] Copiando {filename} ({size_mb:.1f} MB) a NVMe SSD...")
+                shutil.copyfile(src_path, dst_path)
+                dt = time.perf_counter() - t0
+                speed_mb = size_mb / dt if dt > 0 else 0.0
+                print(f"⚡ [SSD Staging] Listo en {dt:.2f}s ({speed_mb:.1f} MB/s). Decodificando en SSD local.")
+                return dst_path, True
+        except Exception as e:
+            print(f"⚠️ [SSD Staging] No se pudo copiar a SSD ({e}), procesando directo desde Drive.")
+            return src_path, False
+
+    return src_path, False
 
 def run_full_pipeline():
     args = parse_args()
@@ -132,17 +173,25 @@ def run_full_pipeline():
     t_start_wall = time.perf_counter()
 
     for vf in video_files:
-        # Collect video duration
-        import cv2
-        cap = cv2.VideoCapture(vf)
-        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-        frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        cap.release()
-        total_source_frames += frames
-        total_duration_sec += (frames / fps)
+        proc_vf, is_temp = stage_video_locally(vf, enabled=not args.no_stage)
+        try:
+            # Collect video duration
+            import cv2
+            cap = cv2.VideoCapture(proc_vf)
+            fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+            frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            cap.release()
+            total_source_frames += frames
+            total_duration_sec += (frames / fps)
 
-        events = pipeline.process_video_file(vf, run_id)
-        total_events_all += len(events)
+            events = pipeline.process_video_file(proc_vf, run_id, original_path=vf)
+            total_events_all += len(events)
+        finally:
+            if is_temp and os.path.exists(proc_vf):
+                try:
+                    os.remove(proc_vf)
+                except Exception:
+                    pass
 
     t_total_wall = time.perf_counter() - t_start_wall
     pipeline.profiler.finish(total_source_frames, total_duration_sec)
