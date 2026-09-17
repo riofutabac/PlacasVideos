@@ -42,7 +42,8 @@ def extract_frames_at_timestamps(video_path: str, backend: str, timestamps: List
         total_yielded += 1
         if f_idx in target_indices:
             orig_ts = target_indices[f_idx]
-            extracted[orig_ts] = frame.copy()
+            bgr_frame = decoder.to_bgr(frame)
+            extracted[orig_ts] = bgr_frame.copy()
             print(f"  [{backend}] Frame en t={ts:.2f}s (idx={f_idx}) extraído.")
         if f_idx > max_target_idx:
             break

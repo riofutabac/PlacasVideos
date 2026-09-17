@@ -52,21 +52,32 @@ class AdaptiveMotionGate:
         if roi_crop is None or roi_crop.size == 0:
             return False
 
-        small = cv2.resize(roi_crop, self.thumb_size, interpolation=cv2.INTER_NEAREST)
-        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+        if roi_crop.ndim == 2:
+            # Grayscale or NV12 luma plane (no color conversion needed!)
+            if roi_crop.shape[0] % 3 == 0:
+                h = (roi_crop.shape[0] * 2) // 3
+                gray = roi_crop[:h, :]
+            else:
+                gray = roi_crop
+            small = cv2.resize(gray, self.thumb_size, interpolation=cv2.INTER_NEAREST)
+        elif roi_crop.ndim == 3:
+            small_bgr = cv2.resize(roi_crop, self.thumb_size, interpolation=cv2.INTER_NEAREST)
+            small = cv2.cvtColor(small_bgr, cv2.COLOR_BGR2GRAY)
+        else:
+            small = cv2.resize(roi_crop, self.thumb_size, interpolation=cv2.INTER_NEAREST)
 
         if self.prev_gray is None:
-            self.prev_gray = gray
+            self.prev_gray = small
             return False
 
-        diff = cv2.absdiff(self.prev_gray, gray)
+        diff = cv2.absdiff(self.prev_gray, small)
         _, thresh = cv2.threshold(diff, 18, 255, cv2.THRESH_BINARY)
         non_zero = cv2.countNonZero(thresh)
         total_pixels = self.thumb_size[0] * self.thumb_size[1]
         motion_ratio = non_zero / float(total_pixels)
 
         # Update reference background
-        self.prev_gray = gray
+        self.prev_gray = small
 
         return motion_ratio >= self.motion_threshold_ratio
 

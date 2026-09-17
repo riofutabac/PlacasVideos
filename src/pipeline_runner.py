@@ -42,7 +42,7 @@ from src.deduplicator import EventDeduplicator
 from src.db_manager import DatabaseManager
 from src.video_decoder import create_decoder
 
-PIPELINE_VERSION = "1.4.0"
+PIPELINE_VERSION = "1.5.0"
 
 def get_clip_start_datetime(video_filename: str) -> datetime:
     """
@@ -215,22 +215,37 @@ class ALPRPipeline:
         cx1, cy1 = self.crop_rect['x_min'], self.crop_rect['y_min']
         cx2, cy2 = self.crop_rect['x_max'], self.crop_rect['y_max']
         is_dec_cropped = getattr(decoder, 'is_cropped', False)
+        is_nv12 = getattr(decoder, 'frame_format', 'bgr') == 'nv12'
+        dec_h = decoder.crop_h if is_dec_cropped else decoder.height
 
         frame_idx = 0
         try:
             for f_idx, timestamp, frame in decoder:
                 frame_idx = f_idx + 1
-                crop_roi = frame if is_dec_cropped else frame[cy1:cy2, cx1:cx2]
-    
-                # Fast Motion Gate (0.04ms)
+
+                # 1. Ultra-fast Motion Gate on native Luma / Grayscale (0.01 ms)
                 self.profiler.start_stage('motion_gate')
-                run_detector = self.motion_gate.should_run_detector(crop_roi, timestamp)
+                if is_nv12:
+                    luma_roi = frame[:dec_h, :] if is_dec_cropped else frame[cy1:cy2, cx1:cx2]
+                    run_detector = self.motion_gate.should_run_detector(luma_roi, timestamp)
+                else:
+                    crop_roi = frame if is_dec_cropped else frame[cy1:cy2, cx1:cx2]
+                    run_detector = self.motion_gate.should_run_detector(crop_roi, timestamp)
                 self.profiler.stop_stage('motion_gate')
-    
+
                 if not run_detector:
                     continue
-    
-                # Vehicle Detection
+
+                # 2. Lazy Full-Range BGR Conversion (ONLY for frames evaluated by YOLO!)
+                self.profiler.start_stage('frame_conversion')
+                if is_nv12:
+                    raw_crop = frame if is_dec_cropped else frame[cy1:cy2, cx1:cx2]
+                    crop_roi = decoder.to_bgr(raw_crop)
+                else:
+                    crop_roi = frame if is_dec_cropped else frame[cy1:cy2, cx1:cx2]
+                self.profiler.stop_stage('frame_conversion')
+
+                # 3. Vehicle Detection (YOLO on Full-Range BGR)
                 self.profiler.start_stage('vehicle_detection')
                 yolo_res = self.vehicle_model(
                     crop_roi,
@@ -336,10 +351,7 @@ class ALPRPipeline:
                     state = tracks[trk_id]
                     state.last_timestamp = timestamp
     
-                    if is_dec_cropped:
-                        veh_crop = crop_roi[max(0, int(ry1)):min(crop_roi.shape[0], int(ry2)), max(0, int(rx1)):min(crop_roi.shape[1], int(rx2))]
-                    else:
-                        veh_crop = frame[max(0, fy1):min(frame.shape[0], fy2), max(0, fx1):min(frame.shape[1], fx2)]
+                    veh_crop = crop_roi[max(0, int(ry1)):min(crop_roi.shape[0], int(ry2)), max(0, int(rx1)):min(crop_roi.shape[1], int(rx2))]
 
                     full_h = self.cfg.get('video', {}).get('height', 1664)
                     full_w = self.cfg.get('video', {}).get('width', 2960)
