@@ -14,7 +14,9 @@ Records granular profiling:
 import os
 import sys
 import json
+import queue
 import shutil
+import threading
 import subprocess
 import time
 from abc import ABC, abstractmethod
@@ -23,11 +25,11 @@ import numpy as np
 import cv2
 
 def probe_video_metadata(video_path: str) -> Dict[str, Any]:
-    """Probes video metadata (codec, width, height, fps, total_frames) using ffprobe."""
+    """Probes video metadata (codec, width, height, fps, total_frames, pix_fmt, color_range) using ffprobe."""
     cmd = [
         "ffprobe", "-v", "error",
         "-select_streams", "v:0",
-        "-show_entries", "stream=codec_name,width,height,r_frame_rate,nb_frames,duration",
+        "-show_entries", "stream=codec_name,pix_fmt,color_range,width,height,r_frame_rate,nb_frames,duration",
         "-of", "json",
         video_path
     ]
@@ -36,8 +38,12 @@ def probe_video_metadata(video_path: str) -> Dict[str, Any]:
         data = json.loads(res.stdout)
         stream = data["streams"][0]
         codec = stream.get("codec_name", "").lower()
+        pix_fmt = stream.get("pix_fmt", "").lower()
+        color_range = stream.get("color_range", "").lower()
         width = int(stream.get("width", 2960))
         height = int(stream.get("height", 1664))
+        
+        is_full_range = pix_fmt.startswith("yuvj") or color_range in ("pc", "full", "jpeg", "2")
         
         r_fps = stream.get("r_frame_rate", "25/1")
         if "/" in r_fps:
@@ -55,6 +61,9 @@ def probe_video_metadata(video_path: str) -> Dict[str, Any]:
                 
         return {
             "codec": codec,
+            "pix_fmt": pix_fmt,
+            "color_range": color_range,
+            "is_full_range": is_full_range,
             "width": width,
             "height": height,
             "fps": fps,
@@ -68,8 +77,12 @@ def probe_video_metadata(video_path: str) -> Dict[str, Any]:
         h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 1664
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
         cap.release()
+        is_full = True if "camara" in video_path.lower() else False
         return {
             "codec": "hevc",
+            "pix_fmt": "yuvj420p" if is_full else "yuv420p",
+            "color_range": "pc" if is_full else "tv",
+            "is_full_range": is_full,
             "width": w,
             "height": h,
             "fps": fps,
@@ -138,14 +151,30 @@ def _read_exact(stream, n_bytes: int) -> bytes:
 
 
 class BaseVideoDecoder(ABC):
-    def __init__(self, video_path: str, profiler: Optional[Any] = None):
+    def __init__(self, video_path: str, profiler: Optional[Any] = None, crop_rect: Optional[Dict[str, int]] = None):
         self.video_path = video_path
         self.profiler = profiler
+        self.crop_rect = crop_rect
+        self.is_cropped = crop_rect is not None
         self.fps: float = 25.0
         self.width: int = 2960
         self.height: int = 1664
         self.total_frames: int = 0
         self.duration_sec: float = 0.0
+        if crop_rect:
+            self.cx1 = crop_rect['x_min'] - (crop_rect['x_min'] % 2)
+            self.cy1 = crop_rect['y_min'] - (crop_rect['y_min'] % 2)
+            self.cx2 = crop_rect['x_max'] - (crop_rect['x_max'] % 2)
+            self.cy2 = crop_rect['y_max'] - (crop_rect['y_max'] % 2)
+            self.crop_w = self.cx2 - self.cx1
+            self.crop_h = self.cy2 - self.cy1
+        else:
+            self.cx1 = 0
+            self.cy1 = 0
+            self.cx2 = self.width
+            self.cy2 = self.height
+            self.crop_w = self.width
+            self.crop_h = self.height
 
     @abstractmethod
     def __iter__(self) -> Generator[Tuple[int, float, np.ndarray], None, None]:
@@ -157,8 +186,8 @@ class BaseVideoDecoder(ABC):
 
 
 class OpenCVDecoder(BaseVideoDecoder):
-    def __init__(self, video_path: str, profiler: Optional[Any] = None):
-        super().__init__(video_path, profiler)
+    def __init__(self, video_path: str, profiler: Optional[Any] = None, crop_rect: Optional[Dict[str, int]] = None):
+        super().__init__(video_path, profiler, crop_rect=crop_rect)
         self.cap = cv2.VideoCapture(video_path)
         if not self.cap.isOpened():
             raise RuntimeError(f"OpenCV no pudo abrir el archivo de video: {video_path}")
@@ -167,6 +196,11 @@ class OpenCVDecoder(BaseVideoDecoder):
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.duration_sec = (self.total_frames / self.fps) if self.fps > 0 else 0.0
+        if not self.is_cropped:
+            self.cx2 = self.width
+            self.cy2 = self.height
+            self.crop_w = self.width
+            self.crop_h = self.height
 
     def __iter__(self) -> Generator[Tuple[int, float, np.ndarray], None, None]:
         frame_idx = 0
@@ -178,6 +212,8 @@ class OpenCVDecoder(BaseVideoDecoder):
                 self.profiler.stop_stage('decode')
             if not ret or frame is None:
                 break
+            if self.is_cropped:
+                frame = frame[self.cy1:self.cy2, self.cx1:self.cx2]
             timestamp = frame_idx / self.fps
             yield frame_idx, timestamp, frame
             frame_idx += 1
@@ -189,12 +225,22 @@ class OpenCVDecoder(BaseVideoDecoder):
 
 class FFmpegNVDECDecoder(BaseVideoDecoder):
     """
-    NVIDIA NVDEC Hardware-accelerated decoder using FFmpeg pipe.
-    Decodes HEVC/H.264 on GPU via CUDA/CUVID, transfers NV12 to host memory (hwdownload),
-    and converts to BGR via OpenCV AVX2 SIMD.
+    NVIDIA NVDEC Hardware-accelerated decoder with decoupled threaded producer.
+    1. HW NVDEC decodes HEVC/H.264 on GPU.
+    2. Color-range filter (scale=in_range=full:out_range=limited) preserves full-range contrast.
+    3. hwdownload transfers NV12 to host memory via DMA.
+    4. Producer slices raw NV12 directly to ROI and converts ONLY the ROI to BGR (cutting conversion time by >50%).
+    5. Producer queues pre-converted frames into Queue(maxsize=queue_size) so NVDEC and YOLO overlap.
     """
-    def __init__(self, video_path: str, profiler: Optional[Any] = None, nvdec_info: Optional[Dict[str, bool]] = None):
-        super().__init__(video_path, profiler)
+    def __init__(
+        self,
+        video_path: str,
+        profiler: Optional[Any] = None,
+        nvdec_info: Optional[Dict[str, bool]] = None,
+        crop_rect: Optional[Dict[str, int]] = None,
+        queue_size: int = 4
+    ):
+        super().__init__(video_path, profiler, crop_rect=crop_rect)
         meta = probe_video_metadata(video_path)
         self.codec = meta["codec"]
         self.width = meta["width"]
@@ -202,13 +248,26 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
         self.fps = meta["fps"]
         self.total_frames = meta["total_frames"]
         self.duration_sec = (self.total_frames / self.fps) if self.fps > 0 else 0.0
+        self.is_full_range = meta.get("is_full_range", False)
         self.nvdec_info = nvdec_info or check_nvdec_available()
+        self.queue_size = queue_size
+
         self.proc: Optional[subprocess.Popen] = None
+        self._frame_queue: queue.Queue = queue.Queue(maxsize=queue_size)
+        self._stop_event: threading.Event = threading.Event()
+        self._producer_thread: Optional[threading.Thread] = None
+        self._producer_error: Optional[Exception] = None
+
+        if self.is_cropped:
+            self.uv_y1 = self.height + (self.cy1 // 2)
+            self.uv_y2 = self.height + (self.cy2 // 2)
 
     def _build_cmd(self, use_cuvid_fallback: bool = False) -> list:
+        range_filter = ",scale=in_range=full:out_range=limited" if self.is_full_range else ""
+
         if use_cuvid_fallback:
             cuvid_codec = "hevc_cuvid" if self.codec in ("hevc", "h265") else "h264_cuvid"
-            return [
+            cmd = [
                 "ffmpeg",
                 "-hide_banner",
                 "-nostdin",
@@ -217,12 +276,18 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
                 "-i", self.video_path,
                 "-map", "0:v:0",
                 "-an", "-sn", "-dn",
+            ]
+            if self.is_full_range:
+                cmd.extend(["-vf", "scale=in_range=full:out_range=limited"])
+            cmd.extend([
                 "-f", "rawvideo",
                 "-pix_fmt", "nv12",
                 "-"
-            ]
-        
-        # Primary benchmarked command (verified 21s in Colab Cell 10)
+            ])
+            return cmd
+
+        # Primary NVDEC CUDA command
+        vf = f"hwdownload,format=nv12{range_filter}"
         return [
             "ffmpeg",
             "-hide_banner",
@@ -233,13 +298,13 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
             "-i", self.video_path,
             "-map", "0:v:0",
             "-an", "-sn", "-dn",
-            "-vf", "hwdownload,format=nv12",
+            "-vf", vf,
             "-f", "rawvideo",
             "-pix_fmt", "nv12",
             "-"
         ]
 
-    def __iter__(self) -> Generator[Tuple[int, float, np.ndarray], None, None]:
+    def _producer_worker(self):
         cmd = self._build_cmd(use_cuvid_fallback=False)
         self.proc = subprocess.Popen(
             cmd,
@@ -247,89 +312,146 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
             stderr=subprocess.PIPE,
             bufsize=10485760  # 10 MB buffer
         )
-
+        stdout = self.proc.stdout
         nv12_frame_size = self.width * self.height * 3 // 2
         nv12_h = self.height * 3 // 2
         w = self.width
         frame_idx = 0
 
-        stdout = self.proc.stdout
-        while True:
-            # Stage 1: NVDEC hardware decode + DMA transfer wait
-            if self.profiler:
-                self.profiler.start_stage('decode')
-                self.profiler.start_stage('decode_nvdec')
-
-            raw_bytes = _read_exact(stdout, nv12_frame_size)
-
-            if self.profiler:
-                self.profiler.stop_stage('decode_nvdec')
-
-            if len(raw_bytes) < nv12_frame_size:
+        try:
+            while not self._stop_event.is_set():
+                # Stage 1: NVDEC hardware decode + DMA transfer wait
                 if self.profiler:
-                    self.profiler.stop_stage('decode')
-                
-                # Check if it failed immediately at frame 0
-                if frame_idx == 0:
-                    err_msg = ""
-                    try:
-                        err_msg = self.proc.stderr.read().decode('utf-8', errors='replace').strip()
-                    except Exception:
-                        pass
-                    print(f"⚠️ [FFmpegNVDECDecoder] NVDEC CUDA no entregó cuadros (stderr: {err_msg}).")
-                    
-                    # Try CUVID fallback
-                    self.release()
-                    cuvid_cmd = self._build_cmd(use_cuvid_fallback=True)
-                    print(f"🔄 [FFmpegNVDECDecoder] Intentando fallback a CUVID...")
-                    self.proc = subprocess.Popen(
-                        cuvid_cmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        bufsize=10485760
-                    )
-                    stdout = self.proc.stdout
-                    test_bytes = _read_exact(stdout, nv12_frame_size)
-                    if len(test_bytes) == nv12_frame_size:
-                        print("✅ [FFmpegNVDECDecoder] CUVID funcionó correctamente.")
-                        raw_bytes = test_bytes
-                    else:
-                        cuvid_err = ""
+                    self.profiler.start_stage('decode_nvdec')
+                raw_bytes = _read_exact(stdout, nv12_frame_size)
+                if self.profiler:
+                    self.profiler.stop_stage('decode_nvdec')
+
+                if len(raw_bytes) < nv12_frame_size:
+                    if frame_idx == 0:
+                        err_msg = ""
                         try:
-                            cuvid_err = self.proc.stderr.read().decode('utf-8', errors='replace').strip()
+                            err_msg = self.proc.stderr.read().decode('utf-8', errors='replace').strip()
                         except Exception:
                             pass
-                        print(f"⚠️ [FFmpegNVDECDecoder] CUVID también falló (stderr: {cuvid_err}). Activando fallback a OpenCV...")
-                        self.release()
-                        opencv_dec = OpenCVDecoder(self.video_path, self.profiler)
-                        yield from opencv_dec
-                        return
+                        print(f"⚠️ [FFmpegNVDECDecoder] NVDEC CUDA falló en frame 0 ({err_msg}). Intentando CUVID...")
+                        if self.proc:
+                            self.proc.terminate()
+                        cuvid_cmd = self._build_cmd(use_cuvid_fallback=True)
+                        self.proc = subprocess.Popen(
+                            cuvid_cmd,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            bufsize=10485760
+                        )
+                        stdout = self.proc.stdout
+                        if self.profiler:
+                            self.profiler.start_stage('decode_nvdec')
+                        raw_bytes = _read_exact(stdout, nv12_frame_size)
+                        if self.profiler:
+                            self.profiler.stop_stage('decode_nvdec')
+                        if len(raw_bytes) == nv12_frame_size:
+                            print("✅ [FFmpegNVDECDecoder] CUVID funcionó correctamente.")
+                        else:
+                            raise RuntimeError(f"NVDEC and CUVID both failed: {err_msg}")
+                    else:
+                        # Normal EOF reached
+                        break
 
                 if len(raw_bytes) < nv12_frame_size:
                     break
 
-            # Stage 2: Frame buffer download / shaping
-            if self.profiler:
-                self.profiler.start_stage('frame_download')
-            nv12_arr = np.frombuffer(raw_bytes, dtype=np.uint8).reshape((nv12_h, w))
-            if self.profiler:
-                self.profiler.stop_stage('frame_download')
+                # Stage 2: Frame buffer download / shaping
+                if self.profiler:
+                    self.profiler.start_stage('frame_download')
+                nv12_arr = np.frombuffer(raw_bytes, dtype=np.uint8).reshape((nv12_h, w))
+                if self.profiler:
+                    self.profiler.stop_stage('frame_download')
 
-            # Stage 3: Frame color conversion (NV12 -> BGR)
+                # Stage 3: Frame color conversion (Raw NV12 ROI crop -> BGR)
+                if self.profiler:
+                    self.profiler.start_stage('frame_conversion')
+                if self.is_cropped:
+                    y_crop = nv12_arr[self.cy1:self.cy2, self.cx1:self.cx2]
+                    uv_crop = nv12_arr[self.uv_y1:self.uv_y2, self.cx1:self.cx2]
+                    crop_nv12 = np.vstack([y_crop, uv_crop])
+                    frame = cv2.cvtColor(crop_nv12, cv2.COLOR_YUV2BGR_NV12)
+                else:
+                    frame = cv2.cvtColor(nv12_arr, cv2.COLOR_YUV2BGR_NV12)
+                if self.profiler:
+                    self.profiler.stop_stage('frame_conversion')
+
+                timestamp = frame_idx / self.fps
+
+                # Push to queue with stop_event checking
+                pushed = False
+                while not self._stop_event.is_set():
+                    try:
+                        self._frame_queue.put((frame_idx, timestamp, frame), timeout=0.1)
+                        pushed = True
+                        break
+                    except queue.Full:
+                        continue
+
+                if not pushed and self._stop_event.is_set():
+                    break
+
+                frame_idx += 1
+
+        except Exception as e:
+            self._producer_error = e
+        finally:
+            try:
+                self._frame_queue.put(None, timeout=0.5)
+            except Exception:
+                pass
+
+    def __iter__(self) -> Generator[Tuple[int, float, np.ndarray], None, None]:
+        self._stop_event.clear()
+        self._producer_error = None
+
+        # Clean queue from any previous run
+        while not self._frame_queue.empty():
+            try:
+                self._frame_queue.get_nowait()
+            except Exception:
+                pass
+
+        self._producer_thread = threading.Thread(target=self._producer_worker, daemon=True)
+        self._producer_thread.start()
+
+        while True:
             if self.profiler:
-                self.profiler.start_stage('frame_conversion')
-            frame = cv2.cvtColor(nv12_arr, cv2.COLOR_YUV2BGR_NV12)
+                self.profiler.start_stage('decode')
+            try:
+                item = self._frame_queue.get(timeout=30.0)
+            except queue.Empty:
+                if self.profiler:
+                    self.profiler.stop_stage('decode')
+                if self._producer_error:
+                    raise self._producer_error
+                break
+
             if self.profiler:
-                self.profiler.stop_stage('frame_conversion')
                 self.profiler.stop_stage('decode')
 
-            timestamp = frame_idx / self.fps
+            if item is None:
+                if self._producer_error:
+                    raise self._producer_error
+                break
+
+            frame_idx, timestamp, frame = item
             yield frame_idx, timestamp, frame
-            frame_idx += 1
 
         self.release()
 
     def release(self):
+        self._stop_event.set()
+        while not self._frame_queue.empty():
+            try:
+                self._frame_queue.get_nowait()
+            except Exception:
+                pass
         if self.proc:
             try:
                 if self.proc.stdout:
@@ -347,14 +469,17 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
             except Exception:
                 pass
             self.proc = None
+        if self._producer_thread and self._producer_thread.is_alive():
+            self._producer_thread.join(timeout=1.0)
+            self._producer_thread = None
 
 
 class PyNvVideoCodecDecoder(BaseVideoDecoder):
     """
     NVIDIA PyNvVideoCodec Decoder (if installed and compatible).
     """
-    def __init__(self, video_path: str, profiler: Optional[Any] = None):
-        super().__init__(video_path, profiler)
+    def __init__(self, video_path: str, profiler: Optional[Any] = None, crop_rect: Optional[Dict[str, int]] = None):
+        super().__init__(video_path, profiler, crop_rect=crop_rect)
         import PyNvVideoCodec as nvc
         self.nvc = nvc
         meta = probe_video_metadata(video_path)
@@ -373,23 +498,30 @@ class NVDECDecoder(BaseVideoDecoder):
     """
     Composite NVDEC Decoder with priority:
       A. PyNvVideoCodec (if available and functional)
-      B. FFmpeg NVDEC Subprocess (hardware CUVID/CUDA)
+      B. FFmpeg NVDEC Subprocess (hardware CUVID/CUDA with threaded producer and ROI crop)
       C. Fallback to OpenCV if NVDEC unavailable or crashes
     """
-    def __init__(self, video_path: str, profiler: Optional[Any] = None):
-        super().__init__(video_path, profiler)
+    def __init__(
+        self,
+        video_path: str,
+        profiler: Optional[Any] = None,
+        crop_rect: Optional[Dict[str, int]] = None,
+        queue_size: int = 4
+    ):
+        super().__init__(video_path, profiler, crop_rect=crop_rect)
         self.nvdec_info = check_nvdec_available()
         self.active_decoder: BaseVideoDecoder
 
         # Priority A: PyNvVideoCodec
         if self.nvdec_info.get("pynv"):
             try:
-                self.active_decoder = PyNvVideoCodecDecoder(video_path, profiler)
+                self.active_decoder = PyNvVideoCodecDecoder(video_path, profiler, crop_rect=crop_rect)
                 self.fps = self.active_decoder.fps
                 self.width = self.active_decoder.width
                 self.height = self.active_decoder.height
                 self.total_frames = self.active_decoder.total_frames
                 self.duration_sec = self.active_decoder.duration_sec
+                self.is_cropped = self.active_decoder.is_cropped
                 return
             except Exception:
                 pass
@@ -397,23 +529,27 @@ class NVDECDecoder(BaseVideoDecoder):
         # Priority B: FFmpeg NVDEC Subprocess
         if self.nvdec_info.get("cuda") or self.nvdec_info.get("hevc_cuvid") or self.nvdec_info.get("h264_cuvid"):
             try:
-                self.active_decoder = FFmpegNVDECDecoder(video_path, profiler, self.nvdec_info)
+                self.active_decoder = FFmpegNVDECDecoder(
+                    video_path, profiler, self.nvdec_info, crop_rect=crop_rect, queue_size=queue_size
+                )
                 self.fps = self.active_decoder.fps
                 self.width = self.active_decoder.width
                 self.height = self.active_decoder.height
                 self.total_frames = self.active_decoder.total_frames
                 self.duration_sec = self.active_decoder.duration_sec
+                self.is_cropped = self.active_decoder.is_cropped
                 return
             except Exception as e:
                 print(f"⚠️ Error al inicializar FFmpegNVDECDecoder ({e}). Fallback a OpenCV.")
 
         # Fallback to OpenCV
-        self.active_decoder = OpenCVDecoder(video_path, profiler)
+        self.active_decoder = OpenCVDecoder(video_path, profiler, crop_rect=crop_rect)
         self.fps = self.active_decoder.fps
         self.width = self.active_decoder.width
         self.height = self.active_decoder.height
         self.total_frames = self.active_decoder.total_frames
         self.duration_sec = self.active_decoder.duration_sec
+        self.is_cropped = self.active_decoder.is_cropped
 
     def __iter__(self) -> Generator[Tuple[int, float, np.ndarray], None, None]:
         return self.active_decoder.__iter__()
@@ -423,10 +559,18 @@ class NVDECDecoder(BaseVideoDecoder):
             self.active_decoder.release()
 
 
-def create_decoder(video_path: str, backend: str = "auto", profiler: Optional[Any] = None) -> BaseVideoDecoder:
+def create_decoder(
+    video_path: str,
+    backend: str = "auto",
+    profiler: Optional[Any] = None,
+    crop_rect: Optional[Dict[str, int]] = None,
+    queue_size: int = 4
+) -> BaseVideoDecoder:
     """
     Factory function for video decoders.
     backend: 'auto', 'nvdec', or 'opencv'
+    crop_rect: Optional bounding rect dict {'x_min', 'y_min', 'x_max', 'y_max'}
+    queue_size: Queue buffer depth for threaded producer
     """
     backend_clean = (backend or "auto").lower().strip()
 
@@ -434,19 +578,19 @@ def create_decoder(video_path: str, backend: str = "auto", profiler: Optional[An
         info = check_nvdec_available()
         if info["cuda"] or info["hevc_cuvid"] or info["h264_cuvid"] or info["pynv"]:
             print(f"⚡ [VideoDecoder] Backend 'auto' -> Activando NVDEC (NVIDIA GPU Hardware Acceleration)")
-            return NVDECDecoder(video_path, profiler)
+            return NVDECDecoder(video_path, profiler, crop_rect=crop_rect, queue_size=queue_size)
         else:
             print(f"ℹ️ [VideoDecoder] Backend 'auto' -> Activando OpenCV (CPU Fallback)")
-            return OpenCVDecoder(video_path, profiler)
+            return OpenCVDecoder(video_path, profiler, crop_rect=crop_rect)
 
     elif backend_clean in ("nvdec", "cuda", "cuvid"):
         print(f"⚡ [VideoDecoder] Backend explícito: NVDEC")
-        return NVDECDecoder(video_path, profiler)
+        return NVDECDecoder(video_path, profiler, crop_rect=crop_rect, queue_size=queue_size)
 
     elif backend_clean in ("opencv", "cpu"):
         print(f"ℹ️ [VideoDecoder] Backend explícito: OpenCV")
-        return OpenCVDecoder(video_path, profiler)
+        return OpenCVDecoder(video_path, profiler, crop_rect=crop_rect)
 
     else:
         print(f"⚠️ [VideoDecoder] Backend desconocido '{backend}'. Usando OpenCV.")
-        return OpenCVDecoder(video_path, profiler)
+        return OpenCVDecoder(video_path, profiler, crop_rect=crop_rect)

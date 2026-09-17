@@ -3,23 +3,27 @@ Timer Profiler and Execution Metrics for ALPR Pipeline.
 Collects granular wall-clock time and invocation counts across every pipeline stage.
 """
 import time
-from dataclasses import dataclass, field
+import threading
 from typing import Dict
 
-@dataclass
 class StageTimer:
-    total_seconds: float = 0.0
-    calls: int = 0
-    _start: float = 0.0
+    def __init__(self):
+        self.total_seconds: float = 0.0
+        self.calls: int = 0
+        self._start: float = 0.0
+        self._lock = threading.Lock()
 
     def start(self):
-        self._start = time.perf_counter()
+        with self._lock:
+            self._start = time.perf_counter()
 
     def stop(self):
-        elapsed = time.perf_counter() - self._start
-        self.total_seconds += elapsed
-        self.calls += 1
-        return elapsed
+        now = time.perf_counter()
+        with self._lock:
+            elapsed = now - self._start
+            self.total_seconds += elapsed
+            self.calls += 1
+            return elapsed
 
 class PipelineProfiler:
     def __init__(self):

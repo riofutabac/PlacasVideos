@@ -42,7 +42,7 @@ from src.deduplicator import EventDeduplicator
 from src.db_manager import DatabaseManager
 from src.video_decoder import create_decoder
 
-PIPELINE_VERSION = "1.2.0"
+PIPELINE_VERSION = "1.3.0"
 
 def get_clip_start_datetime(video_filename: str) -> datetime:
     """
@@ -189,7 +189,14 @@ class ALPRPipeline:
 
         self.profiler.start_clip()
         backend_choice = self.cfg.get('video', {}).get('decode_backend', 'auto')
-        decoder = create_decoder(video_path, backend=backend_choice, profiler=self.profiler)
+        queue_sz = self.cfg.get('video', {}).get('decoder_queue_size', 4)
+        decoder = create_decoder(
+            video_path,
+            backend=backend_choice,
+            profiler=self.profiler,
+            crop_rect=self.crop_rect,
+            queue_size=queue_sz
+        )
         fps = decoder.fps or 25.0
         duration_sec = decoder.duration_sec
         total_frames = decoder.total_frames
@@ -207,12 +214,13 @@ class ALPRPipeline:
 
         cx1, cy1 = self.crop_rect['x_min'], self.crop_rect['y_min']
         cx2, cy2 = self.crop_rect['x_max'], self.crop_rect['y_max']
+        is_dec_cropped = getattr(decoder, 'is_cropped', False)
 
         frame_idx = 0
         try:
             for f_idx, timestamp, frame in decoder:
                 frame_idx = f_idx + 1
-                crop_roi = frame[cy1:cy2, cx1:cx2]
+                crop_roi = frame if is_dec_cropped else frame[cy1:cy2, cx1:cx2]
     
                 # Fast Motion Gate (0.04ms)
                 self.profiler.start_stage('motion_gate')
@@ -328,11 +336,17 @@ class ALPRPipeline:
                     state = tracks[trk_id]
                     state.last_timestamp = timestamp
     
-                    veh_crop = frame[max(0, fy1):min(frame.shape[0], fy2), max(0, fx1):min(frame.shape[1], fx2)]
+                    if is_dec_cropped:
+                        veh_crop = crop_roi[max(0, int(ry1)):min(crop_roi.shape[0], int(ry2)), max(0, int(rx1)):min(crop_roi.shape[1], int(rx2))]
+                    else:
+                        veh_crop = frame[max(0, fy1):min(frame.shape[0], fy2), max(0, fx1):min(frame.shape[1], fx2)]
+
+                    full_h = self.cfg.get('video', {}).get('height', 1664)
+                    full_w = self.cfg.get('video', {}).get('width', 2960)
                     q_score = self.ranker.score_vehicle_frame(
                         vehicle_crop=veh_crop,
                         bbox=(fx1, fy1, fx2, fy2),
-                        frame_shape=frame.shape,
+                        frame_shape=(full_h, full_w),
                         detector_confidence=conf
                     )
     
