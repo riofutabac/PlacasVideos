@@ -147,8 +147,8 @@ def check_nvdec_available() -> Dict[str, bool]:
         "pynv": has_pynv
     }
 
-def _read_exact(stream, n_bytes: int) -> bytes:
-    """Reads exactly n_bytes from stream, looping over pipe chunks."""
+def _read_exact(stream, n_bytes: int) -> Optional[bytearray]:
+    """Reads exactly n_bytes from stream, looping over pipe chunks into a single bytearray."""
     buf = bytearray(n_bytes)
     view = memoryview(buf)
     pos = 0
@@ -158,8 +158,8 @@ def _read_exact(stream, n_bytes: int) -> bytes:
             break
         pos += n
     if pos < n_bytes:
-        return bytes(view[:pos])
-    return bytes(buf)
+        return None
+    return buf
 
 
 class BaseVideoDecoder(ABC):
@@ -270,14 +270,10 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
         self._producer_thread: Optional[threading.Thread] = None
         self._producer_error: Optional[Exception] = None
 
-        if self.is_cropped:
-            self.uv_y1 = self.height + (self.cy1 // 2)
-            self.uv_y2 = self.height + (self.cy2 // 2)
-
     def _build_cmd(self, use_cuvid_fallback: bool = False) -> list:
         if use_cuvid_fallback:
             cuvid_codec = "hevc_cuvid" if self.codec in ("hevc", "h265") else "h264_cuvid"
-            return [
+            cmd = [
                 "ffmpeg",
                 "-hide_banner",
                 "-nostdin",
@@ -286,14 +282,19 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
                 "-i", self.video_path,
                 "-map", "0:v:0",
                 "-an", "-sn", "-dn",
+            ]
+            if self.is_cropped:
+                cmd.extend(["-vf", f"crop={self.crop_w}:{self.crop_h}:{self.cx1}:{self.cy1}"])
+            cmd.extend([
+                "-pix_fmt", "bgr24",
                 "-vsync", "0",
                 "-f", "rawvideo",
-                "-pix_fmt", "nv12",
                 "-"
-            ]
+            ])
+            return cmd
 
-        # Primary benchmarked NVDEC CUDA command with -vsync 0 (zero frame duplication)
-        return [
+        # Primary benchmarked NVDEC CUDA command with direct BGR24 and ROI crop
+        cmd = [
             "ffmpeg",
             "-hide_banner",
             "-nostdin",
@@ -303,12 +304,19 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
             "-i", self.video_path,
             "-map", "0:v:0",
             "-an", "-sn", "-dn",
-            "-vf", "hwdownload,format=nv12",
+        ]
+        if self.is_cropped:
+            cmd.extend(["-vf", f"hwdownload,format=nv12,crop={self.crop_w}:{self.crop_h}:{self.cx1}:{self.cy1}"])
+        else:
+            cmd.extend(["-vf", "hwdownload,format=nv12"])
+
+        cmd.extend([
+            "-pix_fmt", "bgr24",
             "-vsync", "0",
             "-f", "rawvideo",
-            "-pix_fmt", "nv12",
             "-"
-        ]
+        ])
+        return cmd
 
     def _producer_worker(self):
         cmd = self._build_cmd(use_cuvid_fallback=False)
@@ -319,21 +327,21 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
             bufsize=10485760  # 10 MB buffer
         )
         stdout = self.proc.stdout
-        nv12_frame_size = self.width * self.height * 3 // 2
-        nv12_h = self.height * 3 // 2
-        w = self.width
+        out_w = self.crop_w if self.is_cropped else self.width
+        out_h = self.crop_h if self.is_cropped else self.height
+        frame_bytes = out_w * out_h * 3
         frame_idx = 0
 
         try:
             while not self._stop_event.is_set():
-                # Stage 1: NVDEC hardware decode + DMA transfer wait
+                # Stage 1: NVDEC hardware decode + DMA transfer + direct FFmpeg BGR conversion
                 if self.profiler:
                     self.profiler.start_stage('decode_nvdec')
-                raw_bytes = _read_exact(stdout, nv12_frame_size)
+                raw_buf = _read_exact(stdout, frame_bytes)
                 if self.profiler:
                     self.profiler.stop_stage('decode_nvdec')
 
-                if len(raw_bytes) < nv12_frame_size:
+                if raw_buf is None:
                     if frame_idx == 0:
                         err_msg = ""
                         try:
@@ -353,10 +361,10 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
                         stdout = self.proc.stdout
                         if self.profiler:
                             self.profiler.start_stage('decode_nvdec')
-                        raw_bytes = _read_exact(stdout, nv12_frame_size)
+                        raw_buf = _read_exact(stdout, frame_bytes)
                         if self.profiler:
                             self.profiler.stop_stage('decode_nvdec')
-                        if len(raw_bytes) == nv12_frame_size:
+                        if raw_buf is not None:
                             print("✅ [FFmpegNVDECDecoder] CUVID funcionó correctamente.")
                         else:
                             raise RuntimeError(f"NVDEC and CUVID both failed: {err_msg}")
@@ -364,28 +372,15 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
                         # Normal EOF reached
                         break
 
-                if len(raw_bytes) < nv12_frame_size:
+                if raw_buf is None:
                     break
 
-                # Stage 2: Frame buffer download / shaping
+                # Stage 2: Instant zero-copy NumPy array wrapping (no Python CPU conversion!)
                 if self.profiler:
                     self.profiler.start_stage('frame_download')
-                nv12_arr = np.frombuffer(raw_bytes, dtype=np.uint8).reshape((nv12_h, w))
+                frame = np.frombuffer(raw_buf, dtype=np.uint8).reshape((out_h, out_w, 3))
                 if self.profiler:
                     self.profiler.stop_stage('frame_download')
-
-                # Stage 3: Frame color conversion (Raw NV12 ROI crop -> BGR)
-                if self.profiler:
-                    self.profiler.start_stage('frame_conversion')
-                if self.is_cropped:
-                    y_crop = nv12_arr[self.cy1:self.cy2, self.cx1:self.cx2]
-                    uv_crop = nv12_arr[self.uv_y1:self.uv_y2, self.cx1:self.cx2]
-                    crop_nv12 = np.vstack([y_crop, uv_crop])
-                    frame = cv2.cvtColor(crop_nv12, cv2.COLOR_YUV2BGR_NV12)
-                else:
-                    frame = cv2.cvtColor(nv12_arr, cv2.COLOR_YUV2BGR_NV12)
-                if self.profiler:
-                    self.profiler.stop_stage('frame_conversion')
 
                 timestamp = frame_idx / self.fps
 

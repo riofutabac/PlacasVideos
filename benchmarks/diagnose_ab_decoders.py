@@ -26,10 +26,10 @@ from src.pipeline_runner import ALPRPipeline
 
 TIMESTAMPS_TO_COMPARE = [25.0, 105.0, 109.0, 112.0, 116.0, 120.0]
 
-def extract_frames_at_timestamps(video_path: str, backend: str, timestamps: List[float]) -> Dict[float, np.ndarray]:
+def extract_frames_at_timestamps(video_path: str, backend: str, timestamps: List[float], crop_rect: Optional[Dict[str, int]] = None) -> Dict[float, np.ndarray]:
     """Extracts frames closest to target timestamps from the specified decoder."""
     print(f"[{backend.upper()}] Extrayendo frames en timestamps {timestamps}...")
-    decoder = create_decoder(video_path, backend=backend)
+    decoder = create_decoder(video_path, backend=backend, crop_rect=crop_rect)
     fps = decoder.fps or 25.0
     
     target_indices = {int(round(ts * fps)): ts for ts in timestamps}
@@ -68,6 +68,10 @@ def analyze_pixel_differences(frames_opencv: Dict[float, np.ndarray], frames_nvd
         f_cv = frames_opencv[ts]
         f_nv = frames_nvdec[ts]
         
+        if f_cv.shape != f_nv.shape:
+            print(f"Timestamp {ts}s: Dimensiones no coinciden (CV: {f_cv.shape} vs NV: {f_nv.shape})")
+            continue
+            
         diff = cv2.absdiff(f_cv, f_nv)
         mae = np.mean(diff)
         max_diff = np.max(diff)
@@ -108,8 +112,10 @@ def test_motion_gate_and_yolo_on_frames(frames_opencv: Dict[float, np.ndarray], 
         if ts not in frames_opencv or ts not in frames_nvdec:
             continue
             
-        crop_cv = frames_opencv[ts][cy1:cy2, cx1:cx2]
-        crop_nv = frames_nvdec[ts][cy1:cy2, cx1:cx2]
+        f_cv = frames_opencv[ts]
+        f_nv = frames_nvdec[ts]
+        crop_cv = f_cv[cy1:cy2, cx1:cx2] if f_cv.shape[:2] == (1664, 2960) else f_cv
+        crop_nv = f_nv[cy1:cy2, cx1:cx2] if f_nv.shape[:2] == (1664, 2960) else f_nv
         
         # Test YOLO directly on both crops
         res_cv = pipeline.vehicle_model(crop_cv, imgsz=pipeline.vehicle_imgsz, conf=0.20, verbose=False, device=pipeline.device)[0]
@@ -132,9 +138,12 @@ def run_ab_comparison(video_path: str):
     print(f"Video: {video_path}")
     print("="*70 + "\n")
     
-    # 1. Extract frames
-    frames_cv = extract_frames_at_timestamps(video_path, backend="opencv", timestamps=TIMESTAMPS_TO_COMPARE)
-    frames_nv = extract_frames_at_timestamps(video_path, backend="nvdec", timestamps=TIMESTAMPS_TO_COMPARE)
+    pipeline = ALPRPipeline()
+    crop_rect = pipeline.crop_rect
+    
+    # 1. Extract frames (using crop_rect to mirror exact pipeline behavior)
+    frames_cv = extract_frames_at_timestamps(video_path, backend="opencv", timestamps=TIMESTAMPS_TO_COMPARE, crop_rect=crop_rect)
+    frames_nv = extract_frames_at_timestamps(video_path, backend="nvdec", timestamps=TIMESTAMPS_TO_COMPARE, crop_rect=crop_rect)
     
     # 2. Pixel and range analysis
     analyze_pixel_differences(frames_cv, frames_nv)
