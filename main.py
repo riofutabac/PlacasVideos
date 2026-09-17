@@ -10,13 +10,21 @@ import os
 import sys
 import glob
 import time
+import re
 import shutil
 import argparse
 from pathlib import Path
 from typing import Tuple, List, Optional
 from datetime import datetime
 
-PIPELINE_VERSION = "1.1.0"
+PIPELINE_VERSION = "1.2.0"
+
+def natural_clip_sort_key(filepath: str):
+    """Sorts clip filenames numerically (1, 2, ... 10, ... 60, 61) rather than lexicographically."""
+    m = re.search(r'\((\d+)\)\.[a-zA-Z0-9]+$', os.path.basename(filepath))
+    if m:
+        return (0, int(m.group(1)))
+    return (1, [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', filepath)])
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -28,6 +36,13 @@ def parse_args():
         nargs="?",
         default=None,
         help="Ruta a un archivo de video, carpeta contenedora o patrón glob"
+    )
+    parser.add_argument(
+        "--clips",
+        nargs="+",
+        type=int,
+        default=None,
+        help="Números de clips específicos a procesar (ej. --clips 60 61)"
     )
     parser.add_argument(
         "--limit",
@@ -142,6 +157,19 @@ def run_full_pipeline():
         print("  python main.py \"/ruta/a/tus/videos\"")
         print("  python main.py \"/content/drive/MyDrive/Cam PL\" --limit 2")
         sys.exit(1)
+
+    # Filter by specific clip numbers if requested (e.g. --clips 60 61)
+    if args.clips:
+        wanted_clips = set(args.clips)
+        filtered = []
+        for vf in video_files:
+            m = re.search(r'\((\d+)\)\.[a-zA-Z0-9]+$', os.path.basename(vf))
+            if m and int(m.group(1)) in wanted_clips:
+                filtered.append(vf)
+        video_files = filtered
+
+    # Always sort naturally: (1), (2), ..., (9), (10), ..., (60), (61)
+    video_files = sorted(video_files, key=natural_clip_sort_key)
 
     if args.limit and args.limit > 0:
         video_files = video_files[:args.limit]
