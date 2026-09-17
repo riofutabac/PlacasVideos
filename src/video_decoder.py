@@ -122,6 +122,20 @@ def check_nvdec_available() -> Dict[str, bool]:
         "pynv": has_pynv
     }
 
+def _read_exact(stream, n_bytes: int) -> bytes:
+    """Reads exactly n_bytes from stream, looping over pipe chunks."""
+    buf = bytearray(n_bytes)
+    view = memoryview(buf)
+    pos = 0
+    while pos < n_bytes:
+        n = stream.readinto(view[pos:])
+        if not n:
+            break
+        pos += n
+    if pos < n_bytes:
+        return bytes(view[:pos])
+    return bytes(buf)
+
 
 class BaseVideoDecoder(ABC):
     def __init__(self, video_path: str, profiler: Optional[Any] = None):
@@ -191,23 +205,30 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
         self.nvdec_info = nvdec_info or check_nvdec_available()
         self.proc: Optional[subprocess.Popen] = None
 
-    def _build_cmd(self) -> list:
-        cmd = [
+    def _build_cmd(self, use_cuvid_fallback: bool = False) -> list:
+        if use_cuvid_fallback:
+            cuvid_codec = "hevc_cuvid" if self.codec in ("hevc", "h265") else "h264_cuvid"
+            return [
+                "ffmpeg",
+                "-hide_banner",
+                "-nostdin",
+                "-loglevel", "error",
+                "-c:v", cuvid_codec,
+                "-i", self.video_path,
+                "-map", "0:v:0",
+                "-an", "-sn", "-dn",
+                "-f", "rawvideo",
+                "-pix_fmt", "nv12",
+                "-"
+            ]
+        
+        # Primary benchmarked command (verified 21s in Colab Cell 10)
+        return [
             "ffmpeg",
             "-hide_banner",
             "-nostdin",
             "-loglevel", "error",
-        ]
-        # Choose hardware decoder based on probed codec
-        # Don't hardcode h264_cuvid. For HEVC use hevc_cuvid or -hwaccel cuda.
-        if self.codec in ("hevc", "h265") and self.nvdec_info.get("hevc_cuvid"):
-            cmd.extend(["-c:v", "hevc_cuvid"])
-        elif self.codec in ("h264", "avc") and self.nvdec_info.get("h264_cuvid"):
-            cmd.extend(["-c:v", "h264_cuvid"])
-        else:
-            cmd.extend(["-hwaccel", "cuda"])
-
-        cmd.extend([
+            "-hwaccel", "cuda",
             "-hwaccel_output_format", "cuda",
             "-i", self.video_path,
             "-map", "0:v:0",
@@ -215,12 +236,11 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
             "-vf", "hwdownload,format=nv12",
             "-f", "rawvideo",
             "-pix_fmt", "nv12",
-            "pipe:1"
-        ])
-        return cmd
+            "-"
+        ]
 
     def __iter__(self) -> Generator[Tuple[int, float, np.ndarray], None, None]:
-        cmd = self._build_cmd()
+        cmd = self._build_cmd(use_cuvid_fallback=False)
         self.proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -240,7 +260,7 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
                 self.profiler.start_stage('decode')
                 self.profiler.start_stage('decode_nvdec')
 
-            raw_bytes = stdout.read(nv12_frame_size)
+            raw_bytes = _read_exact(stdout, nv12_frame_size)
 
             if self.profiler:
                 self.profiler.stop_stage('decode_nvdec')
@@ -248,7 +268,45 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
             if len(raw_bytes) < nv12_frame_size:
                 if self.profiler:
                     self.profiler.stop_stage('decode')
-                break
+                
+                # Check if it failed immediately at frame 0
+                if frame_idx == 0:
+                    err_msg = ""
+                    try:
+                        err_msg = self.proc.stderr.read().decode('utf-8', errors='replace').strip()
+                    except Exception:
+                        pass
+                    print(f"⚠️ [FFmpegNVDECDecoder] NVDEC CUDA no entregó cuadros (stderr: {err_msg}).")
+                    
+                    # Try CUVID fallback
+                    self.release()
+                    cuvid_cmd = self._build_cmd(use_cuvid_fallback=True)
+                    print(f"🔄 [FFmpegNVDECDecoder] Intentando fallback a CUVID...")
+                    self.proc = subprocess.Popen(
+                        cuvid_cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        bufsize=10485760
+                    )
+                    stdout = self.proc.stdout
+                    test_bytes = _read_exact(stdout, nv12_frame_size)
+                    if len(test_bytes) == nv12_frame_size:
+                        print("✅ [FFmpegNVDECDecoder] CUVID funcionó correctamente.")
+                        raw_bytes = test_bytes
+                    else:
+                        cuvid_err = ""
+                        try:
+                            cuvid_err = self.proc.stderr.read().decode('utf-8', errors='replace').strip()
+                        except Exception:
+                            pass
+                        print(f"⚠️ [FFmpegNVDECDecoder] CUVID también falló (stderr: {cuvid_err}). Activando fallback a OpenCV...")
+                        self.release()
+                        opencv_dec = OpenCVDecoder(self.video_path, self.profiler)
+                        yield from opencv_dec
+                        return
+
+                if len(raw_bytes) < nv12_frame_size:
+                    break
 
             # Stage 2: Frame buffer download / shaping
             if self.profiler:
@@ -276,6 +334,11 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
             try:
                 if self.proc.stdout:
                     self.proc.stdout.close()
+            except Exception:
+                pass
+            try:
+                if self.proc.stderr:
+                    self.proc.stderr.close()
             except Exception:
                 pass
             try:
