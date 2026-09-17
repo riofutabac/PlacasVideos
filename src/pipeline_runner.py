@@ -42,7 +42,7 @@ from src.deduplicator import EventDeduplicator
 from src.db_manager import DatabaseManager
 from src.video_decoder import create_decoder
 
-PIPELINE_VERSION = "1.5.0"
+PIPELINE_VERSION = "1.6.0"
 
 def get_clip_start_datetime(video_filename: str) -> datetime:
     """
@@ -171,6 +171,16 @@ class ALPRPipeline:
         os.makedirs("evidence/vehicles", exist_ok=True)
         os.makedirs("evidence/plates", exist_ok=True)
         cv2.setNumThreads(cv2.getNumberOfCPUs())
+
+        # Warmup models on CUDA to eliminate cold-start delay during processing
+        if self.device == 'cuda':
+            try:
+                dummy_frame = np.zeros((self.vehicle_imgsz, self.vehicle_imgsz, 3), dtype=np.uint8)
+                self.vehicle_model(dummy_frame, imgsz=self.vehicle_imgsz, verbose=False, device=self.device)
+                dummy_crop = np.zeros((120, 240, 3), dtype=np.uint8)
+                self.alpr.predict(dummy_crop)
+            except Exception:
+                pass
 
     def is_point_in_gravel(self, point: Tuple[int, int]) -> bool:
         return cv2.pointPolygonTest(self.poly_gravel, (float(point[0]), float(point[1])), False) >= 0
