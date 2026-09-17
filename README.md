@@ -1,5 +1,7 @@
 # 🚗 Pipeline ALPR Orientado a Eventos (Ecuador - Vía Pintag)
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/riofutabac/PlacasVideos/blob/main/GoogleColab_ALPR_Pipeline.ipynb)
+
 Pipeline de reconocimiento automático de matrículas vehiculares (ALPR / LPR) de alto rendimiento, optimizado para grabaciones de videovigilancia en vías de lastre (cámara lateral-frontal con ángulo y vibración).
 
 Diseñado con una **arquitectura basada en eventos** para procesar horas continuas de video con máxima fidelidad, detección multi-carril (`ENTRADA` / `SALIDA`), filtrado de polvo/viento mediante Motion Gate de 3 estados, deduplicación temporal y exportación de auditoría a Excel con fotos incrustadas.
