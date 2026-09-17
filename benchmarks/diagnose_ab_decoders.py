@@ -124,12 +124,12 @@ def test_motion_gate_and_yolo_on_frames(frames_opencv: Dict[float, np.ndarray], 
         print(f"\n--- Timestamp {ts:.1f}s ---")
         print(f"OpenCV Crop -> YOLO Detecciones: {len(res_cv.boxes)}")
         for b in res_cv.boxes:
-            cls_name = pipeline.vehicle_classes.get(int(b.cls[0].item()), str(int(b.cls[0].item())))
+            cls_name = pipeline.vehicle_model.names.get(int(b.cls[0].item()), str(int(b.cls[0].item())))
             print(f"   [OpenCV] {cls_name:<12} Conf: {float(b.conf[0].item()):.3f} BBox: {[int(x) for x in b.xyxy[0].cpu().numpy()]}")
             
         print(f"NVDEC  Crop -> YOLO Detecciones: {len(res_nv.boxes)}")
         for b in res_nv.boxes:
-            cls_name = pipeline.vehicle_classes.get(int(b.cls[0].item()), str(int(b.cls[0].item())))
+            cls_name = pipeline.vehicle_model.names.get(int(b.cls[0].item()), str(int(b.cls[0].item())))
             print(f"   [NVDEC]  {cls_name:<12} Conf: {float(b.conf[0].item()):.3f} BBox: {[int(x) for x in b.xyxy[0].cpu().numpy()]}")
 
 def run_ab_comparison(video_path: str):
