@@ -25,6 +25,9 @@ class PipelineProfiler:
     def __init__(self):
         self.stages: Dict[str, StageTimer] = {
             'decode': StageTimer(),
+            'decode_nvdec': StageTimer(),
+            'frame_download': StageTimer(),
+            'frame_conversion': StageTimer(),
             'motion_gate': StageTimer(),
             'vehicle_detection': StageTimer(),
             'tracking': StageTimer(),

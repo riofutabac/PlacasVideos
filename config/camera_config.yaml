@@ -6,6 +6,7 @@ video:
   width: 2960
   height: 1664
   clock_band_height: 120  # Banda superior del reloj estampado
+  decode_backend: "auto"  # auto (NVDEC si hay GPU, sino OpenCV), nvdec, opencv
 
 roi:
   # 1. Crop rectangular físico (para acelerar la inferencia en YOLO reduciendo FLOPs)

@@ -40,8 +40,9 @@ from src.motion_gate import AdaptiveMotionGate
 from src.ecuador_plate_validator import apply_ecuador_heuristics
 from src.deduplicator import EventDeduplicator
 from src.db_manager import DatabaseManager
+from src.video_decoder import create_decoder
 
-PIPELINE_VERSION = "1.0.0"
+PIPELINE_VERSION = "1.2.0"
 
 def get_clip_start_datetime(video_filename: str) -> datetime:
     """
@@ -187,14 +188,11 @@ class ALPRPipeline:
             return []
 
         self.profiler.start_clip()
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            print(f"Error opening video: {video_path}")
-            return []
-
-        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        duration_sec = total_frames / fps
+        backend_choice = self.cfg.get('video', {}).get('decode_backend', 'auto')
+        decoder = create_decoder(video_path, backend=backend_choice, profiler=self.profiler)
+        fps = decoder.fps or 25.0
+        duration_sec = decoder.duration_sec
+        total_frames = decoder.total_frames
 
         tracker = sv.ByteTrack(
             track_activation_threshold=0.20,
@@ -211,178 +209,171 @@ class ALPRPipeline:
         cx2, cy2 = self.crop_rect['x_max'], self.crop_rect['y_max']
 
         frame_idx = 0
-        while cap.isOpened():
-            self.profiler.start_stage('decode')
-            ret, frame = cap.read()
-            self.profiler.stop_stage('decode')
-            if not ret:
-                break
-
-            timestamp = frame_idx / fps
-            frame_idx += 1
-
-            crop_roi = frame[cy1:cy2, cx1:cx2]
-
-            # Fast Motion Gate (0.04ms)
-            self.profiler.start_stage('motion_gate')
-            run_detector = self.motion_gate.should_run_detector(crop_roi, timestamp)
-            self.profiler.stop_stage('motion_gate')
-
-            if not run_detector:
-                continue
-
-            # Vehicle Detection
-            self.profiler.start_stage('vehicle_detection')
-            yolo_res = self.vehicle_model(
-                crop_roi,
-                imgsz=self.vehicle_imgsz,
-                verbose=False,
-                conf=self.vehicle_conf,
-                classes=self.vehicle_classes,
-                device=self.device
-            )[0]
-            self.profiler.stop_stage('vehicle_detection')
-
-            valid_boxes = []
-            valid_confs = []
-            valid_classes = []
-
-            for box in yolo_res.boxes:
-                rx1, ry1, rx2, ry2 = box.xyxy[0].cpu().numpy()
-                conf = float(box.conf[0].item())
-                cls_id = int(box.cls[0].item())
-
-                fx1, fy1, fx2, fy2 = int(rx1 + cx1), int(ry1 + cy1), int(rx2 + cx1), int(ry2 + cy1)
-                contact_point = ((fx1 + fx2) // 2, fy2)
-
-                # Ignore static parked van in bottom left corner
-                if fx1 < 500 and fy2 > 1300 and (fx2 - fx1) > 300:
+        try:
+            for f_idx, timestamp, frame in decoder:
+                frame_idx = f_idx + 1
+                crop_roi = frame[cy1:cy2, cx1:cx2]
+    
+                # Fast Motion Gate (0.04ms)
+                self.profiler.start_stage('motion_gate')
+                run_detector = self.motion_gate.should_run_detector(crop_roi, timestamp)
+                self.profiler.stop_stage('motion_gate')
+    
+                if not run_detector:
                     continue
-
-                if self.is_point_in_gravel(contact_point):
-                    # Map person (0) or bicycle (1) inside gravel polygon to motorcycle (3)
-                    if cls_id in (0, 1):
-                        cls_id = 3
-                    valid_boxes.append([rx1, ry1, rx2, ry2])
-                    valid_confs.append(conf)
-                    valid_classes.append(cls_id)
-
-            if valid_boxes:
-                self.motion_gate.notify_vehicle_detected(timestamp)
-
-            # ByteTrack Update
-            self.profiler.start_stage('tracking')
-            if valid_boxes:
-                detections = sv.Detections(
-                    xyxy=np.array(valid_boxes, dtype=np.float32),
-                    confidence=np.array(valid_confs, dtype=np.float32),
-                    class_id=np.array(valid_classes, dtype=np.int32)
-                )
-                tracked_detections = tracker.update_with_detections(detections)
-            else:
-                tracked_detections = tracker.update_with_detections(sv.Detections.empty())
-            self.profiler.stop_stage('tracking')
-
-            # Update Tracks
-            for i in range(len(tracked_detections)):
-                trk_id = int(tracked_detections.tracker_id[i]) if tracked_detections.tracker_id is not None and len(tracked_detections.tracker_id) > i else None
-                if trk_id is None:
-                    continue
-
-                rx1, ry1, rx2, ry2 = tracked_detections.xyxy[i]
-                fx1, fy1, fx2, fy2 = int(rx1 + cx1), int(ry1 + cy1), int(rx2 + cx1), int(ry2 + cy1)
-                conf = float(tracked_detections.confidence[i])
-                cls_id = int(tracked_detections.class_id[i])
-                cls_name = self.vehicle_model.names.get(cls_id, 'vehicle')
-                if cls_name in ('person', 'bicycle'):
-                    cls_name = 'motorcycle'
-
-                contact_pt = ((fx1 + fx2) / 2.0, float(fy2 - 15))
-
-                if trk_id not in tracks:
-                    # Track stitching: check if this new track matches a recently lost/inactive track
-                    stitched_from_id = None
-                    best_dist = float('inf')
-                    for old_id, old_state in list(tracks.items()):
-                        if old_id != trk_id and not old_state.has_emitted:
-                            time_gap = timestamp - old_state.last_timestamp
-                            if 0.05 <= time_gap <= 3.0:
-                                class_compat = (
-                                    old_state.vehicle_class == cls_name
-                                    or {old_state.vehicle_class, cls_name}.issubset({'truck', 'bus', 'car'})
-                                    or {old_state.vehicle_class, cls_name}.issubset({'motorcycle', 'person'})
-                                )
-                                if class_compat and old_state.trajectory:
-                                    last_pt = old_state.trajectory[-1]
-                                    dist = np.hypot(contact_pt[0] - last_pt[0], contact_pt[1] - last_pt[1])
-                                    if dist < 450.0 and dist < best_dist:
-                                        best_dist = dist
-                                        stitched_from_id = old_id
-
-                    if stitched_from_id is not None:
-                        old_state = tracks.pop(stitched_from_id)
-                        old_state.track_id = trk_id
-                        old_state.last_timestamp = timestamp
-                        if cls_name != 'vehicle':
-                            old_state.vehicle_class = cls_name
-                        tracks[trk_id] = old_state
-                    else:
-                        tracks[trk_id] = TrackState(
-                            track_id=trk_id,
-                            first_timestamp=timestamp,
-                            last_timestamp=timestamp,
-                            vehicle_class=cls_name
-                        )
-
-                state = tracks[trk_id]
-                state.last_timestamp = timestamp
-
-                veh_crop = frame[max(0, fy1):min(frame.shape[0], fy2), max(0, fx1):min(frame.shape[1], fx2)]
-                q_score = self.ranker.score_vehicle_frame(
-                    vehicle_crop=veh_crop,
-                    bbox=(fx1, fy1, fx2, fy2),
-                    frame_shape=frame.shape,
-                    detector_confidence=conf
-                )
-
-                candidate = VehicleFrameCandidate(
-                    score=q_score,
-                    timestamp=timestamp,
-                    vehicle_crop=veh_crop,
-                    bbox_in_full_frame=(fx1, fy1, fx2, fy2)
-                )
-                if len(state.best_vehicle_frames) < self.cfg['quality_ranking']['top_m_vehicle_frames']:
-                    state.best_vehicle_frames.append(candidate)
-                    state.best_vehicle_frames.sort(key=lambda x: x.score, reverse=True)
-                elif q_score > state.best_vehicle_frames[-1].score:
-                    state.best_vehicle_frames[-1] = candidate
-                    state.best_vehicle_frames.sort(key=lambda x: x.score, reverse=True)
-
-                self.profiler.start_stage('crossing_fsm')
-                committed = self.fsm.update_track(state, contact_pt, timestamp)
-                self.profiler.stop_stage('crossing_fsm')
-
-                if committed and not state.has_emitted:
-                    state.has_emitted = True
-                    event = self.finalize_vehicle_event(state, clip_id, file_hash, run_id, clip_start_dt)
-                    if event:
-                        clip_events.append(event)
-
-            # Prune inactive tracks
-            for trk_id, state in list(tracks.items()):
-                if (timestamp - state.last_timestamp) > 3.0:
-                    if not state.has_emitted and len(state.trajectory) >= 2:
-                        y_coords = [pt[1] for pt in state.trajectory]
-                        if (min(y_coords) < self.fsm.line_y and max(y_coords) > self.fsm.line_y) or state.state in ("CROSSED", "COMMITTED"):
-                            state.has_emitted = True
-                            if not state.direction:
-                                state.direction = "ENTRADA" if state.trajectory[-1][1] > state.trajectory[0][1] else "SALIDA"
-                            event = self.finalize_vehicle_event(state, clip_id, file_hash, run_id, clip_start_dt)
-                            if event:
-                                clip_events.append(event)
-                    del tracks[trk_id]
-
-        cap.release()
+    
+                # Vehicle Detection
+                self.profiler.start_stage('vehicle_detection')
+                yolo_res = self.vehicle_model(
+                    crop_roi,
+                    imgsz=self.vehicle_imgsz,
+                    verbose=False,
+                    conf=self.vehicle_conf,
+                    classes=self.vehicle_classes,
+                    device=self.device
+                )[0]
+                self.profiler.stop_stage('vehicle_detection')
+    
+                valid_boxes = []
+                valid_confs = []
+                valid_classes = []
+    
+                for box in yolo_res.boxes:
+                    rx1, ry1, rx2, ry2 = box.xyxy[0].cpu().numpy()
+                    conf = float(box.conf[0].item())
+                    cls_id = int(box.cls[0].item())
+    
+                    fx1, fy1, fx2, fy2 = int(rx1 + cx1), int(ry1 + cy1), int(rx2 + cx1), int(ry2 + cy1)
+                    contact_point = ((fx1 + fx2) // 2, fy2)
+    
+                    # Ignore static parked van in bottom left corner
+                    if fx1 < 500 and fy2 > 1300 and (fx2 - fx1) > 300:
+                        continue
+    
+                    if self.is_point_in_gravel(contact_point):
+                        # Map person (0) or bicycle (1) inside gravel polygon to motorcycle (3)
+                        if cls_id in (0, 1):
+                            cls_id = 3
+                        valid_boxes.append([rx1, ry1, rx2, ry2])
+                        valid_confs.append(conf)
+                        valid_classes.append(cls_id)
+    
+                if valid_boxes:
+                    self.motion_gate.notify_vehicle_detected(timestamp)
+    
+                # ByteTrack Update
+                self.profiler.start_stage('tracking')
+                if valid_boxes:
+                    detections = sv.Detections(
+                        xyxy=np.array(valid_boxes, dtype=np.float32),
+                        confidence=np.array(valid_confs, dtype=np.float32),
+                        class_id=np.array(valid_classes, dtype=np.int32)
+                    )
+                    tracked_detections = tracker.update_with_detections(detections)
+                else:
+                    tracked_detections = tracker.update_with_detections(sv.Detections.empty())
+                self.profiler.stop_stage('tracking')
+    
+                # Update Tracks
+                for i in range(len(tracked_detections)):
+                    trk_id = int(tracked_detections.tracker_id[i]) if tracked_detections.tracker_id is not None and len(tracked_detections.tracker_id) > i else None
+                    if trk_id is None:
+                        continue
+    
+                    rx1, ry1, rx2, ry2 = tracked_detections.xyxy[i]
+                    fx1, fy1, fx2, fy2 = int(rx1 + cx1), int(ry1 + cy1), int(rx2 + cx1), int(ry2 + cy1)
+                    conf = float(tracked_detections.confidence[i])
+                    cls_id = int(tracked_detections.class_id[i])
+                    cls_name = self.vehicle_model.names.get(cls_id, 'vehicle')
+                    if cls_name in ('person', 'bicycle'):
+                        cls_name = 'motorcycle'
+    
+                    contact_pt = ((fx1 + fx2) / 2.0, float(fy2 - 15))
+    
+                    if trk_id not in tracks:
+                        # Track stitching: check if this new track matches a recently lost/inactive track
+                        stitched_from_id = None
+                        best_dist = float('inf')
+                        for old_id, old_state in list(tracks.items()):
+                            if old_id != trk_id and not old_state.has_emitted:
+                                time_gap = timestamp - old_state.last_timestamp
+                                if 0.05 <= time_gap <= 3.0:
+                                    class_compat = (
+                                        old_state.vehicle_class == cls_name
+                                        or {old_state.vehicle_class, cls_name}.issubset({'truck', 'bus', 'car'})
+                                        or {old_state.vehicle_class, cls_name}.issubset({'motorcycle', 'person'})
+                                    )
+                                    if class_compat and old_state.trajectory:
+                                        last_pt = old_state.trajectory[-1]
+                                        dist = np.hypot(contact_pt[0] - last_pt[0], contact_pt[1] - last_pt[1])
+                                        if dist < 450.0 and dist < best_dist:
+                                            best_dist = dist
+                                            stitched_from_id = old_id
+    
+                        if stitched_from_id is not None:
+                            old_state = tracks.pop(stitched_from_id)
+                            old_state.track_id = trk_id
+                            old_state.last_timestamp = timestamp
+                            if cls_name != 'vehicle':
+                                old_state.vehicle_class = cls_name
+                            tracks[trk_id] = old_state
+                        else:
+                            tracks[trk_id] = TrackState(
+                                track_id=trk_id,
+                                first_timestamp=timestamp,
+                                last_timestamp=timestamp,
+                                vehicle_class=cls_name
+                            )
+    
+                    state = tracks[trk_id]
+                    state.last_timestamp = timestamp
+    
+                    veh_crop = frame[max(0, fy1):min(frame.shape[0], fy2), max(0, fx1):min(frame.shape[1], fx2)]
+                    q_score = self.ranker.score_vehicle_frame(
+                        vehicle_crop=veh_crop,
+                        bbox=(fx1, fy1, fx2, fy2),
+                        frame_shape=frame.shape,
+                        detector_confidence=conf
+                    )
+    
+                    candidate = VehicleFrameCandidate(
+                        score=q_score,
+                        timestamp=timestamp,
+                        vehicle_crop=veh_crop,
+                        bbox_in_full_frame=(fx1, fy1, fx2, fy2)
+                    )
+                    if len(state.best_vehicle_frames) < self.cfg['quality_ranking']['top_m_vehicle_frames']:
+                        state.best_vehicle_frames.append(candidate)
+                        state.best_vehicle_frames.sort(key=lambda x: x.score, reverse=True)
+                    elif q_score > state.best_vehicle_frames[-1].score:
+                        state.best_vehicle_frames[-1] = candidate
+                        state.best_vehicle_frames.sort(key=lambda x: x.score, reverse=True)
+    
+                    self.profiler.start_stage('crossing_fsm')
+                    committed = self.fsm.update_track(state, contact_pt, timestamp)
+                    self.profiler.stop_stage('crossing_fsm')
+    
+                    if committed and not state.has_emitted:
+                        state.has_emitted = True
+                        event = self.finalize_vehicle_event(state, clip_id, file_hash, run_id, clip_start_dt)
+                        if event:
+                            clip_events.append(event)
+    
+                # Prune inactive tracks
+                for trk_id, state in list(tracks.items()):
+                    if (timestamp - state.last_timestamp) > 3.0:
+                        if not state.has_emitted and len(state.trajectory) >= 2:
+                            y_coords = [pt[1] for pt in state.trajectory]
+                            if (min(y_coords) < self.fsm.line_y and max(y_coords) > self.fsm.line_y) or state.state in ("CROSSED", "COMMITTED"):
+                                state.has_emitted = True
+                                if not state.direction:
+                                    state.direction = "ENTRADA" if state.trajectory[-1][1] > state.trajectory[0][1] else "SALIDA"
+                                event = self.finalize_vehicle_event(state, clip_id, file_hash, run_id, clip_start_dt)
+                                if event:
+                                    clip_events.append(event)
+                        del tracks[trk_id]
+        finally:
+            decoder.release()
 
         # Final pass on remaining tracks at video end
         for trk_id, state in list(tracks.items()):

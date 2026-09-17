@@ -45,6 +45,12 @@ def parse_args():
         help="Números de clips específicos a procesar (ej. --clips 60 61)"
     )
     parser.add_argument(
+        "--decoder",
+        choices=["auto", "nvdec", "opencv"],
+        default=None,
+        help="Backend de decodificación de video: 'auto', 'nvdec' (GPU) u 'opencv' (CPU)"
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=None,
@@ -183,6 +189,8 @@ def run_full_pipeline():
     from src.excel_exporter import ExcelReportExporter
 
     pipeline = ALPRPipeline()
+    if args.decoder:
+        pipeline.cfg.setdefault('video', {})['decode_backend'] = args.decoder
     run_id = f"RUN_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
     # Start run in DB
@@ -203,14 +211,12 @@ def run_full_pipeline():
     for vf in video_files:
         proc_vf, is_temp = stage_video_locally(vf, enabled=not args.no_stage)
         try:
-            # Collect video duration
-            import cv2
-            cap = cv2.VideoCapture(proc_vf)
-            fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-            frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            cap.release()
+            from src.video_decoder import probe_video_metadata
+            meta = probe_video_metadata(proc_vf)
+            fps = meta['fps']
+            frames = meta['total_frames']
             total_source_frames += frames
-            total_duration_sec += (frames / fps)
+            total_duration_sec += (frames / fps) if fps > 0 else 0.0
 
             events = pipeline.process_video_file(proc_vf, run_id, original_path=vf)
             total_events_all += len(events)
