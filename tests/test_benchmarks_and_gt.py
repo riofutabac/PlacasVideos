@@ -169,3 +169,10 @@ def test_plate_detector_benchmark(tmp_path, monkeypatch):
     assert len(results) == 2
     assert results[0]["recall_pct"] >= 0.0
 
+
+def test_pipeline_microbenchmarks(monkeypatch):
+    from benchmarks.benchmark_pipeline_microbench import run_microbenchmarks
+    # Test run_microbenchmarks runs without exceptions
+    run_microbenchmarks()
+
+
