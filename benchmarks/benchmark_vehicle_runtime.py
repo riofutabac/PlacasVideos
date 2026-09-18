@@ -65,11 +65,54 @@ def benchmark_runtime(
     has_cuda = torch.cuda.is_available()
     device = "cuda" if has_cuda else "cpu"
 
-    # `ort_trt` and `trt_engine` rows currently have no dedicated runtime
-    # implementation, so they both degrade to the same "ultralytics" runner
-    # as the baseline. Reuse a single cached instance for that runtime so the
-    # underlying model is loaded once instead of once per benchmark row.
-    effective_runtime = runtime_key if runtime_key in ("ultralytics", "ort_iobinding") else "ultralytics"
+    if runtime_key == "trt_engine":
+        print(f"  ℹ️ {runtime_label}: Motor nativo .engine no implementado aún.")
+        return {
+            "runtime": runtime_key,
+            "label": runtime_label,
+            "status": "NOT_IMPLEMENTED",
+            "preprocess_ms": None,
+            "inference_ms": None,
+            "postprocess_ms": None,
+            "total_p50_ms": None,
+            "total_p95_ms": None,
+            "fps_equivalent": None,
+            "speedup_vs_baseline": None
+        }
+
+    if runtime_key in ("ort_iobinding", "ort_trt") and not has_cuda:
+        print(f"  ⚠️ {runtime_label}: Requiere GPU NVIDIA con CUDA/TensorRT. No medido en host CPU.")
+        return {
+            "runtime": runtime_key,
+            "label": runtime_label,
+            "status": "REQUIRES_CUDA_GPU",
+            "preprocess_ms": None,
+            "inference_ms": None,
+            "postprocess_ms": None,
+            "total_p50_ms": None,
+            "total_p95_ms": None,
+            "fps_equivalent": None,
+            "speedup_vs_baseline": None
+        }
+
+    if runtime_key == "ort_trt":
+        import onnxruntime as ort
+        if "TensorrtExecutionProvider" not in ort.get_available_providers():
+            print(f"  ⚠️ {runtime_label}: TensorrtExecutionProvider no está disponible en este entorno.")
+            return {
+                "runtime": runtime_key,
+                "label": runtime_label,
+                "status": "NOT_AVAILABLE",
+                "preprocess_ms": None,
+                "inference_ms": None,
+                "postprocess_ms": None,
+                "total_p50_ms": None,
+                "total_p95_ms": None,
+                "fps_equivalent": None,
+                "speedup_vs_baseline": None
+            }
+
+    effective_runtime = runtime_key
     cache_key = (effective_runtime, model_name, device)
 
     runner = None
@@ -84,7 +127,7 @@ def benchmark_runtime(
                 device=device
             )
         except Exception as e:
-            print(f"  ℹ️ Inicialización en modo simulación ({e})")
+            print(f"  ℹ️ Error al inicializar {runtime_label} ({e})")
             runner = None
         if runner_cache is not None:
             runner_cache[cache_key] = runner
@@ -101,21 +144,6 @@ def benchmark_runtime(
     inf_times = []
     post_times = []
     total_times = []
-
-    if runtime_key in ("ort_iobinding", "ort_trt", "trt_engine") and not has_cuda:
-        print(f"  ⚠️ {runtime_label}: Requiere GPU NVIDIA con CUDA/TensorRT. No medido en host CPU.")
-        return {
-            "runtime": runtime_key,
-            "label": runtime_label,
-            "status": "REQUIRES_CUDA_GPU",
-            "preprocess_ms": None,
-            "inference_ms": None,
-            "postprocess_ms": None,
-            "total_p50_ms": None,
-            "total_p95_ms": None,
-            "fps_equivalent": None,
-            "speedup_vs_baseline": None
-        }
 
     for frame in frames:
         _, _, _, timing = runner.predict(frame, imgsz=imgsz)
@@ -196,8 +224,13 @@ def run_vehicle_runtime_benchmark(
     print(f"{'Backend / Runtime':<35} | {'Pre (ms)':<8} | {'Inf (ms)':<8} | {'Post (ms)':<9} | {'p50 (ms)':<8} | {'FPS':<6} | {'Speedup'}")
     print("-" * 90)
     for r in results:
-        if r.get("status") == "REQUIRES_CUDA_GPU":
+        status = r.get("status")
+        if status == "REQUIRES_CUDA_GPU":
             print(f"{r['label']:<35} | {'[Requiere GPU CUDA/TensorRT - No medido en CPU]':<50}")
+        elif status == "NOT_IMPLEMENTED":
+            print(f"{r['label']:<35} | {'[No implementado aún]':<50}")
+        elif status == "NOT_AVAILABLE":
+            print(f"{r['label']:<35} | {'[No disponible en este entorno]':<50}")
         else:
             print(f"{r['label']:<35} | {r['preprocess_ms']:<8.2f} | {r['inference_ms']:<8.2f} | {r['postprocess_ms']:<9.2f} | {r['total_p50_ms']:<8.2f} | {r['fps_equivalent']:<6.1f} | {r['speedup_vs_baseline']}x")
     print("=" * 90 + "\n")

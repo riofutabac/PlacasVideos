@@ -1,5 +1,5 @@
 runtime,label,status,preprocess_ms,inference_ms,postprocess_ms,total_p50_ms,total_p95_ms,fps_equivalent,speedup_vs_baseline
-ultralytics,Ultralytics YOLO (Default),MEASURED,1.67,25.56,1.03,27.18,39.3,36.8,1.0
+ultralytics,Ultralytics YOLO (Default),MEASURED,44.03,172.82,22.53,232.11,471.54,4.3,1.0
 ort_iobinding,ONNX Runtime CUDA I/O Binding,REQUIRES_CUDA_GPU,,,,,,,
 ort_trt,ONNX Runtime TensorRT EP (FP16),REQUIRES_CUDA_GPU,,,,,,,
-trt_engine,Native TensorRT Engine (.engine),REQUIRES_CUDA_GPU,,,,,,,
+trt_engine,Native TensorRT Engine (.engine),NOT_IMPLEMENTED,,,,,,,1.0

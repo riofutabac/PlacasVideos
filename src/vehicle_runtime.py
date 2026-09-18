@@ -101,25 +101,49 @@ class VehicleDetectorRunner:
             if hasattr(self.model, 'names') and self.model.names:
                 self.names = self.model.names
             return
-        if self.runtime == "ort_iobinding":
+        if self.runtime in ("ort_iobinding", "ort_trt"):
             try:
                 import onnxruntime as ort
-                providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if self.device == 'cuda' else ['CPUExecutionProvider']
                 onnx_path = self.model_name if self.model_name.endswith('.onnx') else f"{self.model_name}.onnx"
                 if os.path.exists(onnx_path):
                     opts = ort.SessionOptions()
                     opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-                    self.ort_session = ort.InferenceSession(onnx_path, sess_options=opts, providers=providers)
-                    if 'CUDAExecutionProvider' in self.ort_session.get_providers():
-                        self.io_binding = self.ort_session.io_binding()
-                        logger.info("✅ Initialized ONNX Runtime with CUDA I/O Binding.")
+                    available_providers = ort.get_available_providers()
+
+                    if self.runtime == "ort_trt":
+                        if "TensorrtExecutionProvider" in available_providers and self.device == "cuda":
+                            trt_options = {
+                                'device_id': 0,
+                                'trt_max_workspace_size': 2147483648,
+                                'trt_fp16_enable': True,
+                                'trt_engine_cache_enable': True,
+                                'trt_engine_cache_path': './trt_cache',
+                            }
+                            providers = [
+                                ('TensorrtExecutionProvider', trt_options),
+                                ('CUDAExecutionProvider', {'device_id': 0}),
+                                'CPUExecutionProvider'
+                            ]
+                        else:
+                            raise RuntimeError(
+                                f"TensorrtExecutionProvider no disponible en este entorno "
+                                f"(disponibles: {available_providers}, device={self.device})"
+                            )
                     else:
-                        logger.info("ℹ️ CUDAExecutionProvider not active; using standard CPU ORT.")
+                        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if self.device == 'cuda' else ['CPUExecutionProvider']
+
+                    self.ort_session = ort.InferenceSession(onnx_path, sess_options=opts, providers=providers)
+                    active_providers = self.ort_session.get_providers()
+                    if 'CUDAExecutionProvider' in active_providers or 'TensorrtExecutionProvider' in active_providers:
+                        self.io_binding = self.ort_session.io_binding()
+                        logger.info(f"✅ Initialized ONNX Runtime with providers: {active_providers}")
+                    else:
+                        logger.info(f"ℹ️ Hardware acceleration not active in providers ({active_providers}); using standard CPU ORT.")
                     return
                 else:
                     logger.warning(f"ONNX model file {onnx_path} not found. Falling back to Ultralytics.")
             except Exception as e:
-                logger.warning(f"Error initializing ORT I/O Binding ({e}). Falling back to Ultralytics.")
+                logger.warning(f"Error initializing runtime '{self.runtime}' ({e}). Falling back to Ultralytics.")
 
         # Default fallback to Ultralytics YOLO
         from ultralytics import YOLO
