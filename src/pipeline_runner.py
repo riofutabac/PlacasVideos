@@ -110,9 +110,12 @@ def compute_file_hash(filepath: str) -> str:
     return hasher.hexdigest()
 
 class ALPRPipeline:
-    def __init__(self, config_path: str = "config/camera_config.yaml", db_path: str = "data/events.sqlite"):
+    def __init__(self, config_path: str = "config/camera_config.yaml", db_path: str = "data/events.sqlite", model_name_override: Optional[str] = None):
         with open(config_path) as f:
             self.cfg = yaml.safe_load(f)
+            
+        if model_name_override:
+            self.cfg.setdefault('models', {}).setdefault('vehicle_detector', {})['model_name'] = model_name_override
             
         self.config_hash = hashlib.md5(yaml.dump(self.cfg).encode()).hexdigest()[:8]
         self.db = DatabaseManager(db_path)
@@ -158,22 +161,13 @@ class ALPRPipeline:
         # Ensure ONNX model exists; auto-export from .pt if missing
         if model_name.endswith('.onnx') and not os.path.exists(model_name):
             pt_name = model_name.replace('.onnx', '.pt')
-            if os.path.exists(pt_name):
-                print(f"⚡ [Model Export] Exportando {pt_name} a ONNX ({model_name}) para aceleración CUDA...")
-                try:
-                    YOLO(pt_name).export(format='onnx', imgsz=self.vehicle_imgsz, dynamic=True)
-                except Exception as e:
-                    print(f"⚠️ Error al exportar ONNX ({e}). Usando {pt_name}.")
-                    model_name = pt_name
-            elif os.path.exists('yolov8n.pt'):
-                print(f"⚡ [Model Export] Exportando yolov8n.pt a {model_name}...")
-                try:
-                    YOLO('yolov8n.pt').export(format='onnx', imgsz=self.vehicle_imgsz, dynamic=True)
-                except Exception as e:
-                    print(f"⚠️ Error al exportar ONNX ({e}). Usando yolov8n.pt.")
-                    model_name = 'yolov8n.pt'
-            else:
-                model_name = 'yolov8n.pt'
+            print(f"⚡ [Model Export] Preparando {pt_name} y exportando a ONNX ({model_name})...")
+            try:
+                m = YOLO(pt_name)
+                m.export(format='onnx', imgsz=self.vehicle_imgsz, dynamic=True)
+            except Exception as e:
+                print(f"⚠️ Error al exportar ONNX ({e}). Usando {pt_name} directamente.")
+                model_name = pt_name
 
         print(f"Loading vehicle detector ({model_name}) on device='{self.device}'...")
         self.vehicle_model = YOLO(model_name)

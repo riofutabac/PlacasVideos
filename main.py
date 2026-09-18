@@ -57,6 +57,11 @@ def parse_args():
         help="Límite máximo de videos a procesar en esta corrida"
     )
     parser.add_argument(
+        "--model",
+        default=None,
+        help="Modelo YOLO para detección de vehículos (ej. 'yolo26n.onnx', 'yolov8n.onnx')"
+    )
+    parser.add_argument(
         "--no-stage",
         action="store_true",
         help="Desactivar copiado temporal a SSD local antes de decodificar"
@@ -188,7 +193,7 @@ def run_full_pipeline():
     from src.pipeline_runner import ALPRPipeline, PIPELINE_VERSION as RUNNER_VER
     from src.excel_exporter import ExcelReportExporter
 
-    pipeline = ALPRPipeline()
+    pipeline = ALPRPipeline(model_name_override=args.model)
     if args.decoder:
         pipeline.cfg.setdefault('video', {})['decode_backend'] = args.decoder
     run_id = f"RUN_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
