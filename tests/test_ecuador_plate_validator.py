@@ -97,8 +97,8 @@ def test_motorcycle_plate_corrections():
 
     # Moto with digit in last position (common OCR confusion: A <-> 4)
     res_m4 = apply_ecuador_heuristics("JU4364", 0.85)
-    # length=6, norm[0].isalpha(), norm[1].isalpha(), norm[2].isdigit() -> triggers moto format
-    assert res_m4['plate_status'] in ("OK", "FORMATO_ESPECIAL_O_MOTO")
+    assert res_m4['plate_corrected'] == "JU436A"
+    assert res_m4['plate_status'] == "OK"
 
     # Moto with digit in letter prefix
     res_m0 = apply_ecuador_heuristics("1U436A", 0.85)

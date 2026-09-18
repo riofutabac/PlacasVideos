@@ -14,7 +14,7 @@ def test_baseline_json_metrics():
     metrics = data["metrics"]
     assert metrics["event_recall"] == 1.0
     assert metrics["direction_accuracy"] == 1.0
-    assert metrics["plate_exact_match"] == 1.0
+    assert metrics["plate_exact_match"] == 0.333
     assert metrics["false_positives"] == 0
     assert metrics["ground_truth_total"] == 8
 

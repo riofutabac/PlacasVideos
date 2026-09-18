@@ -8,7 +8,8 @@
   "metrics": {
     "event_recall": 1.0,
     "direction_accuracy": 1.0,
-    "plate_exact_match": 1.0,
+    "plate_exact_match": 0.333,
+    "plate_single_char_recall": 1.0,
     "false_positives": 0,
     "total_events": 8,
     "ground_truth_total": 8

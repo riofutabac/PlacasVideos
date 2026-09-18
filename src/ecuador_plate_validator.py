@@ -19,11 +19,11 @@ PROVINCE_CODES = {
 }
 
 DIGIT_TO_LETTER = {
-    '0': 'O', '1': 'I', '8': 'B', '5': 'S', '2': 'Z', '6': 'G'
+    '0': 'O', '1': 'I', '8': 'B', '5': 'S', '2': 'Z', '6': 'G', '4': 'A', '7': 'T'
 }
 
 LETTER_TO_DIGIT = {
-    'O': '0', 'I': '1', 'B': '8', 'S': '5', 'Z': '2', 'G': '6', 'D': '0'
+    'O': '0', 'I': '1', 'B': '8', 'S': '5', 'Z': '2', 'G': '6', 'D': '0', 'Q': '0', 'A': '4', 'T': '7', 'L': '1'
 }
 
 def normalize_plate_string(text: Optional[str]) -> Optional[str]:
