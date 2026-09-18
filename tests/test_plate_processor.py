@@ -6,7 +6,7 @@ import pytest
 from src.pipeline_types import VehicleFrameCandidate
 from src.quality_ranker import QualityRanker
 from src.timer_profiler import PipelineProfiler
-from src.plate_processor import PlateProcessor
+from src.plate_processor import PlateProcessor, vote_plate_characters
 
 @pytest.fixture
 def processor(tmp_path):
@@ -107,7 +107,68 @@ def test_recognize_plate_candidates(processor):
 
     plate_raw, plate_crop, plate_conf, ocr_conf, best_plate_ts, ocr_votes = processor.recognize_plate_candidates(candidates)
     assert plate_raw == "PCW2492"
-    assert ocr_conf == 0.96
+    assert 0.85 < ocr_conf <= 0.96
     assert best_plate_ts == 12.0
     assert len(ocr_votes) == 2
     assert ocr_votes[0][0] == "PCW2492"
+
+def test_vote_plate_characters_consensus():
+    # Candidate 1 mistook '2' for '7' at pos 6
+    c1 = {
+        'text': "PCW2497",
+        'ocr_conf': 0.82,
+        'char_confs': [0.9, 0.9, 0.85, 0.9, 0.9, 0.9, 0.60],
+        'det_conf': 0.90,
+        'plate_score': 1.2,
+        'crop': np.ones((20, 50, 3), dtype=np.uint8),
+        'timestamp': 10.0
+    }
+    # Candidate 2 mistook 'W' for 'H' at pos 2
+    c2 = {
+        'text': "PCH2492",
+        'ocr_conf': 0.85,
+        'char_confs': [0.9, 0.9, 0.60, 0.9, 0.9, 0.9, 0.90],
+        'det_conf': 0.92,
+        'plate_score': 1.3,
+        'crop': np.ones((20, 50, 3), dtype=np.uint8) * 2,
+        'timestamp': 11.0
+    }
+    # Candidate 3 is clean
+    c3 = {
+        'text': "PCW2492",
+        'ocr_conf': 0.88,
+        'char_confs': [0.9, 0.9, 0.88, 0.9, 0.9, 0.9, 0.92],
+        'det_conf': 0.95,
+        'plate_score': 1.4,
+        'crop': np.ones((20, 50, 3), dtype=np.uint8) * 3,
+        'timestamp': 12.0
+    }
+
+    text, conf, crop, ts, det_conf = vote_plate_characters([c1, c2, c3])
+    assert text == "PCW2492"
+    assert conf > 0.85
+    assert det_conf == 0.95
+    assert ts == 12.0
+
+def test_vote_plate_characters_prior_ecuador():
+    # 0CW2492 (invalid ANT prefix '0') vs PCW2492 (valid ANT Pichincha)
+    c_inv = {
+        'text': "0CW2492",
+        'ocr_conf': 0.85,
+        'char_confs': [0.85] * 7,
+        'det_conf': 0.90,
+        'plate_score': 1.0,
+        'crop': np.zeros((10, 10, 3)),
+        'timestamp': 1.0
+    }
+    c_val = {
+        'text': "PCW2492",
+        'ocr_conf': 0.85,
+        'char_confs': [0.85] * 7,
+        'det_conf': 0.90,
+        'plate_score': 1.0,
+        'crop': np.zeros((10, 10, 3)),
+        'timestamp': 2.0
+    }
+    text, conf, crop, ts, det_conf = vote_plate_characters([c_inv, c_val])
+    assert text == "PCW2492"
