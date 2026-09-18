@@ -104,5 +104,14 @@ def evaluate_run(db_path: str = "data/events.sqlite", run_id: Optional[str] = No
     print(f"FALSE POSITIVES:       {false_positives}")
     print("="*60 + "\n")
 
+    return {
+        "event_recall": event_recall,
+        "direction_accuracy": dir_acc,
+        "plate_exact_match": plate_acc,
+        "false_positives": false_positives,
+        "matched_gt_count": len(matched_gt),
+        "total_gt_count": len(ground_truth)
+    }
+
 if __name__ == '__main__':
     evaluate_run()

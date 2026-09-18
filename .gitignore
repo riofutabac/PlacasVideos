@@ -40,3 +40,5 @@ Thumbs.db
 gitingest-ingest/
 benchmarks/ground_truth_candidates/
 benchmarks/*.jpg
+.coverage
+.pytest_cache/
