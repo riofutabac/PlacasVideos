@@ -96,7 +96,7 @@ class VehicleDetectorRunner:
         return self.predict(img)
 
     def _init_runtime(self, model_factory: Optional[Any] = None):
-        if model_factory is not None:
+        if self.runtime == "ultralytics" and model_factory is not None:
             self.model = model_factory(self.model_name)
             if hasattr(self.model, 'names') and self.model.names:
                 self.names = self.model.names
@@ -108,6 +108,8 @@ class VehicleDetectorRunner:
                 if os.path.exists(onnx_path):
                     opts = ort.SessionOptions()
                     opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                    opts.intra_op_num_threads = 1 if self.device == "cuda" else min(8, os.cpu_count() or 1)
+                    opts.inter_op_num_threads = 1
                     available_providers = ort.get_available_providers()
 
                     if self.runtime == "ort_trt":

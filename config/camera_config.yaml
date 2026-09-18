@@ -71,13 +71,19 @@ models:
 
 quality_ranking:
   top_m_vehicle_frames: 8
-  top_k_plate_crops: 7
+  top_k_plate_crops: 4
   save_candidate_manifest: false
   weights_vehicle:
     sharpness: 0.35
     area: 0.35
     confidence: 0.20
     border_penalty: 0.10
+  weights_plate:
+    conf: 0.10
+    area: 0.40
+    sharpness: 0.35
+    aspect: 0.10
+    overexposure: 0.05
 
 deduplication:
   cooldown_seconds: 25.0

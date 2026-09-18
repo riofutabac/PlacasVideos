@@ -26,6 +26,7 @@ from src.deduplicator import EventDeduplicator
 from src.ecuador_plate_validator import apply_ecuador_heuristics
 from src.model_resolver import resolve_vehicle_model
 from src.vehicle_runtime import VehicleDetectorRunner
+from src.threading_profile import configure_threading_profile
 from src.video_decoder import create_decoder
 from src.pipeline_types import (
     VehicleFrameCandidate,
@@ -54,7 +55,8 @@ class ALPRPipeline:
         self.config_hash = hashlib.md5(yaml.dump(self.cfg).encode()).hexdigest()[:8]
         self.db = DatabaseManager(db_path)
         self.profiler = PipelineProfiler()
-        self.ranker = QualityRanker(self.cfg.get('quality_ranking', {}).get('weights_vehicle'))
+        qr_cfg = self.cfg.get('quality_ranking', {})
+        self.ranker = QualityRanker(qr_cfg.get('weights_vehicle'), qr_cfg.get('weights_plate'))
         
         # Geometries & Crossing FSM
         self.crop_rect = self.cfg['roi']['crop_rect']
@@ -142,7 +144,7 @@ class ALPRPipeline:
             'ocr_engine': f"{ocr_model} ({self.device.upper()})"
         }
 
-        cv2.setNumThreads(cv2.getNumberOfCPUs())
+        self.thread_profile = configure_threading_profile(self.device, self.cfg.get('performance', {}).get('threads'))
 
         if self.device == 'cuda':
             torch.backends.cudnn.benchmark = True

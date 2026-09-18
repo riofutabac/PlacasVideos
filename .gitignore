@@ -39,6 +39,8 @@ reports/*.xlsx
 Thumbs.db
 gitingest-ingest/
 benchmarks/ground_truth_candidates/
+benchmarks/experiments/
 benchmarks/*.jpg
+trt_cache/
 .coverage
 .pytest_cache/
