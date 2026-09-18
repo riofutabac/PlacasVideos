@@ -1,0 +1,27 @@
+{
+  "model": "yolo26n.onnx",
+  "evaluated_at": "2026-09-18 15:14:15",
+  "benchmark_clips": [
+    "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "Camara Placas 2_20260909105651-20260909163038(61).mp4"
+  ],
+  "metrics": {
+    "event_recall": 1.0,
+    "direction_accuracy": 0.875,
+    "plate_exact_match": 0.333,
+    "false_positives": 1,
+    "total_events": 9,
+    "ground_truth_total": 8
+  },
+  "performance": {
+    "speed_ratio_realtime": 4.17,
+    "wall_clock_seconds": 158.58,
+    "video_duration_seconds": 661.16,
+    "total_frames": 16454,
+    "gpu_inference_latency_ms": 6.81,
+    "gpu_pipeline_latency_ms": 46.2,
+    "cpu_inference_latency_ms": 15.34,
+    "device_tested": "Tesla T4 (CUDA) / Intel Xeon (CPU)"
+  },
+  "analysis": "YOLO26n shows a 32.1% speedup on CPU due to NMS-free architecture. However, on GPU video pipelines, bounding-box jitter without NMS causes license plate cropping misalignment (plate match 33.3% vs 100%) and 1 direction inversion (87.5% vs 100%). YOLOv8n remains recommended for GPU production."
+}

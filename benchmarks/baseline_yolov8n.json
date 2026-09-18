@@ -1,0 +1,83 @@
+{
+  "model": "yolov8n.onnx",
+  "evaluated_at": "2026-09-17 21:52:11",
+  "benchmark_clips": [
+    "Camara Placas 2_20260909105651-20260909163038(60).mp4",
+    "Camara Placas 2_20260909105651-20260909163038(61).mp4"
+  ],
+  "metrics": {
+    "event_recall": 1.0,
+    "direction_accuracy": 1.0,
+    "plate_exact_match": 1.0,
+    "false_positives": 0,
+    "total_events": 8,
+    "ground_truth_total": 8
+  },
+  "performance": {
+    "speed_ratio_realtime": 6.46,
+    "wall_clock_seconds": 102.35,
+    "video_duration_seconds": 661.16,
+    "total_frames": 16452,
+    "gpu_inference_latency_ms": 6.07,
+    "cpu_inference_latency_ms": 22.59,
+    "device_tested": "Tesla T4 (CUDA) / Intel Xeon (CPU)"
+  },
+  "detected_ground_truth_events": [
+    {
+      "gt_id": "GT_60_1",
+      "plate": "PCW2492",
+      "direction": "ENTRADA",
+      "vehicle_type": "car",
+      "timestamp_approx": 25.0
+    },
+    {
+      "gt_id": "GT_60_2",
+      "plate": "PCG3981",
+      "direction": "SALIDA",
+      "vehicle_type": "truck",
+      "timestamp_approx": 109.0
+    },
+    {
+      "gt_id": "GT_60_3",
+      "plate": "TAA2204",
+      "direction": "SALIDA",
+      "vehicle_type": "truck",
+      "timestamp_approx": 116.0
+    },
+    {
+      "gt_id": "GT_60_4",
+      "plate": "JU436A",
+      "direction": "SALIDA",
+      "vehicle_type": "motorcycle",
+      "timestamp_approx": 120.0
+    },
+    {
+      "gt_id": "GT_60_5",
+      "plate": null,
+      "direction": "SALIDA",
+      "vehicle_type": "truck",
+      "timestamp_approx": 271.0
+    },
+    {
+      "gt_id": "GT_61_1",
+      "plate": "PAC2573",
+      "direction": "ENTRADA",
+      "vehicle_type": "bus",
+      "timestamp_approx": 80.0
+    },
+    {
+      "gt_id": "GT_61_2",
+      "plate": null,
+      "direction": "ENTRADA",
+      "vehicle_type": "motorcycle",
+      "timestamp_approx": 206.0
+    },
+    {
+      "gt_id": "GT_61_3",
+      "plate": "PAB6741",
+      "direction": "ENTRADA",
+      "vehicle_type": "truck",
+      "timestamp_approx": 314.0
+    }
+  ]
+}
