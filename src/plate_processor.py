@@ -44,15 +44,30 @@ class PlateProcessor:
                         bb = d.bounding_box
                         x1, y1 = max(0, int(bb.x1)), max(0, int(bb.y1))
                         x2, y2 = min(cand.vehicle_crop.shape[1], int(bb.x2)), min(cand.vehicle_crop.shape[0], int(bb.y2))
-                        if (x2 - x1) >= 20 and (y2 - y1) >= 10:
-                            p_crop = cand.vehicle_crop[y1:y2, x1:x2]
-                            q_score = self.ranker.score_plate_crop(p_crop, float(d.confidence))
-                            candidates.append({
-                                'score': q_score,
-                                'det_conf': float(d.confidence),
-                                'crop': p_crop,
-                                'timestamp': cand.timestamp
-                            })
+                        bw = x2 - x1
+                        bh = y2 - y1
+                        aspect = bw / float(bh) if bh > 0 else 0.0
+
+                        # Reject extreme vertical slivers (partial half-plates) or tiny artifacts
+                        if bw < 20 or bh < 10 or aspect < 0.75:
+                            continue
+
+                        # Step 1: Expand plate bbox by 15% margin per side to prevent cutting edge characters
+                        pad_x = int(bw * 0.15)
+                        pad_y = int(bh * 0.15)
+                        px1 = max(0, x1 - pad_x)
+                        py1 = max(0, y1 - pad_y)
+                        px2 = min(cand.vehicle_crop.shape[1], x2 + pad_x)
+                        py2 = min(cand.vehicle_crop.shape[0], y2 + pad_y)
+
+                        p_crop = cand.vehicle_crop[py1:py2, px1:px2]
+                        q_score = self.ranker.score_plate_crop(p_crop, float(d.confidence))
+                        candidates.append({
+                            'score': q_score,
+                            'det_conf': float(d.confidence),
+                            'crop': p_crop,
+                            'timestamp': cand.timestamp
+                        })
             except Exception:
                 pass
         self.profiler.stop_stage('plate_detection')

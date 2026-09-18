@@ -68,7 +68,18 @@ def test_detect_plate_candidates(processor):
     assert len(candidates) == 1
     assert candidates[0]["det_conf"] == 0.95
     assert candidates[0]["timestamp"] == 12.5
-    assert candidates[0]["crop"].shape == (30, 70, 3)
+    # Padded crop dimensions (was 30x70, now 38x90)
+    assert candidates[0]["crop"].shape == (38, 90, 3)
+
+    # Test rejecting absurd vertical half-crop (aspect < 0.75)
+    class VerticalSliverDet:
+        def __init__(self):
+            self.bounding_box = DummyBBox(10, 10, 30, 70)  # bw=20, bh=60 -> aspect=0.33
+            self.confidence = 0.90
+
+    processor.alpr.detector.predict.return_value = [VerticalSliverDet()]
+    rejected = processor.detect_plate_candidates([frame_cand])
+    assert len(rejected) == 0
 
 def test_recognize_plate_candidates(processor):
     # Empty candidates
