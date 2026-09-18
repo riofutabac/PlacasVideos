@@ -144,3 +144,17 @@ def test_nvdec_cropped_frames_convert_full_nv12_buffer(pipeline, tmp_path):
 
     assert decoder.to_bgr_shapes == [(h * 3 // 2, w)] * 3
     assert all(call.args[0].shape == (h, w) for call in gate.call_args_list)
+
+
+def test_detect_and_filter_vehicles_runs_postprocess(pipeline):
+    """Regression: v2.1 used time.perf_counter() without importing time, crashing every clip."""
+    box_in_gravel = [1300.0, 700.0, 1500.0, 900.0]  # ROI coords -> bottom-center (1700, 1500) in lane
+    pipeline.vehicle_runner = MagicMock()
+    pipeline.vehicle_runner.predict.return_value = ([box_in_gravel], [0.9], [2], {})
+
+    boxes, confs, classes = pipeline._detect_and_filter_vehicles(
+        np.zeros((1064, 2300, 3), dtype=np.uint8), 300, 600, timestamp=1.0
+    )
+
+    assert boxes == [box_in_gravel]
+    assert confs == [0.9] and classes == [2]

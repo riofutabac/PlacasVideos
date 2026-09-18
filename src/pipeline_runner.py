@@ -4,6 +4,7 @@ Coordinates decoupled decoding, adaptive motion gating, vehicle detection & trac
 virtual line crossing FSM, quality ranking, and FastALPR plate recognition.
 """
 import os
+import time
 import hashlib
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional, Any
