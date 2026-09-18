@@ -55,13 +55,16 @@ def evaluate_run(db_path: str = "data/events.sqlite", run_id: Optional[str] = No
     gt_videos = set(gt['video_source'] for gt in ground_truth)
     eval_detected = [d for d in detected_events if d['video_source'] in gt_videos]
 
+    clips_list = sorted(list(set(os.path.basename(v) for v in gt_videos)))
+    clips_display = ", ".join(clips_list) if len(clips_list) <= 4 else f"{len(clips_list)} clips"
+
     print("\n" + "="*60)
     print("GROUND TRUTH EVALUATION")
     print("="*60)
-    print(f"Ground Truth Events:  {len(ground_truth)} (en clips 60 y 61)")
+    print(f"Ground Truth Events:  {len(ground_truth)} (en {clips_display})")
     print(f"Total Eventos Lote:   {len(detected_events)}")
     if not eval_detected:
-        print("ℹ️ Esta corrida no incluye los clips de prueba (60) o (61). Evaluación omitida.")
+        print(f"ℹ️ Esta corrida no incluye videos del ground truth ({clips_display}). Evaluación omitida.")
         print("="*60 + "\n")
         return
     print(f"Eventos en Clips GT:  {len(eval_detected)}")
@@ -143,4 +146,10 @@ def evaluate_run(db_path: str = "data/events.sqlite", run_id: Optional[str] = No
     }
 
 if __name__ == '__main__':
-    evaluate_run()
+    import argparse
+    parser = argparse.ArgumentParser(description="Evaluate pipeline against ground truth")
+    parser.add_argument("--db", default="data/events.sqlite", help="Path to SQLite database")
+    parser.add_argument("--run-id", default=None, help="Specific run_id to evaluate")
+    parser.add_argument("--gt", default="benchmarks/ground_truth.json", help="Path to ground truth JSON")
+    args = parser.parse_args()
+    evaluate_run(db_path=args.db, run_id=args.run_id, gt_path=args.gt)
