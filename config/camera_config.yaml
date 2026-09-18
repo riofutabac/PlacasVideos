@@ -63,10 +63,15 @@ models:
   ocr:
     engine: "fast_plate_ocr"
     model: "cct-xs-v2-global-model"
+    province_prior:
+      enabled: false
+      beta: 0.10
+      manual_review_threshold: 0.15
 
 quality_ranking:
   top_m_vehicle_frames: 8
   top_k_plate_crops: 7
+  save_candidate_manifest: false
   weights_vehicle:
     sharpness: 0.35
     area: 0.35

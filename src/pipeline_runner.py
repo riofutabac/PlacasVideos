@@ -118,7 +118,11 @@ class ALPRPipeline:
             alpr=self.alpr,
             ranker=self.ranker,
             profiler=self.profiler,
-            top_k_crops=self.cfg.get('quality_ranking', {}).get('top_k_plate_crops', 3)
+            top_k_crops=self.cfg.get('quality_ranking', {}).get('top_k_plate_crops', 7),
+            vehicle_evidence_dir=self.cfg.get('storage', {}).get('vehicles_dir', 'evidence/vehicles'),
+            plate_evidence_dir=self.cfg.get('storage', {}).get('plates_dir', 'evidence/plates'),
+            save_manifest=self.cfg.get('quality_ranking', {}).get('save_candidate_manifest', False),
+            province_prior=m_ocr.get('province_prior', {})
         )
 
         self.model_versions = {
@@ -309,6 +313,8 @@ class ALPRPipeline:
                 clip_events.append(evt)
 
         self._record_clip_summary(clip_id, file_hash, display_path, duration_sec, frame_idx, len(clip_events), started_at_str, run_id)
+        if self.plate_processor.save_manifest:
+            self.plate_processor.write_manifest()
         return clip_events
 
     def finalize_vehicle_event(self, track: TrackState, video_source: str, clip_hash: str, run_id: str, clip_start_dt: datetime) -> Optional[Dict]:
@@ -320,12 +326,13 @@ class ALPRPipeline:
         event_dt = clip_start_dt + timedelta(seconds=crossing_ts)
         event_id = f"EVT_{os.path.splitext(video_source)[0][-4:]}_{track.track_id:04d}_{int(crossing_ts)}"
 
-        candidates = self.plate_processor.detect_plate_candidates(track.best_vehicle_frames)
+        candidates = self.plate_processor.detect_plate_candidates(track.best_vehicle_frames, event_id=event_id)
         plate_raw, plate_crop, plate_conf, ocr_conf, best_plate_ts, ocr_votes = self.plate_processor.recognize_plate_candidates(
             candidates, event_id=event_id
         )
 
-        heuristics = apply_ecuador_heuristics(plate_raw, ocr_conf)
+        needs_review = getattr(self.plate_processor, 'last_needs_manual_review', False)
+        heuristics = apply_ecuador_heuristics(plate_raw, ocr_conf, needs_manual_review=needs_review)
         veh_path, plate_path = self.plate_processor.save_evidence(event_id, best_cand.vehicle_crop, plate_crop)
 
         abs_ts = event_dt.timestamp()

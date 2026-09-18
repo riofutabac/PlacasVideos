@@ -8,7 +8,8 @@
     "vehicle_type": "car",
     "description": "Automovil Chevrolet Aveo gris plomo frontal",
     "plate_text": "PCW2492",
-    "plate_legible": true
+    "plate_legible": true,
+    "province": "Pichincha"
   },
   {
     "ground_truth_id": "GT_60_2",
@@ -19,7 +20,8 @@
     "vehicle_type": "truck",
     "description": "Camion cisterna de agua azul",
     "plate_text": "PCG3981",
-    "plate_legible": true
+    "plate_legible": true,
+    "province": "Pichincha"
   },
   {
     "ground_truth_id": "GT_60_3",
@@ -30,7 +32,8 @@
     "vehicle_type": "truck",
     "description": "Camioneta blanca junto a la cisterna",
     "plate_text": "TAA2204",
-    "plate_legible": true
+    "plate_legible": true,
+    "province": "Tungurahua"
   },
   {
     "ground_truth_id": "GT_60_4",
@@ -41,7 +44,8 @@
     "vehicle_type": "motorcycle",
     "description": "Moto junto al convoy",
     "plate_text": "JU436A",
-    "plate_legible": true
+    "plate_legible": true,
+    "province": "Santo Domingo"
   },
   {
     "ground_truth_id": "GT_60_5",
@@ -52,7 +56,8 @@
     "vehicle_type": "truck",
     "description": "Camioneta 4x4 Great Wall ploma alejandose sin placas",
     "plate_text": null,
-    "plate_legible": false
+    "plate_legible": false,
+    "province": null
   },
   {
     "ground_truth_id": "GT_61_1",
@@ -63,7 +68,8 @@
     "vehicle_type": "bus",
     "description": "Buseta escolar amarilla CIA TRANS ESCOLAR",
     "plate_text": "PAC2573",
-    "plate_legible": true
+    "plate_legible": true,
+    "province": "Pichincha"
   },
   {
     "ground_truth_id": "GT_61_2",
@@ -74,7 +80,8 @@
     "vehicle_type": "motorcycle",
     "description": "Motocicleta azul frontal (sin placa delantera)",
     "plate_text": null,
-    "plate_legible": false
+    "plate_legible": false,
+    "province": null
   },
   {
     "ground_truth_id": "GT_61_3",
@@ -85,6 +92,7 @@
     "vehicle_type": "truck",
     "description": "Camion Hino blanco furgon comercial",
     "plate_text": "PAB6741",
-    "plate_legible": true
+    "plate_legible": true,
+    "province": "Pichincha"
   }
 ]

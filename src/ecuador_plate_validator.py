@@ -32,7 +32,11 @@ def normalize_plate_string(text: Optional[str]) -> Optional[str]:
     cleaned = re.sub(r'[^A-Za-z0-9]', '', text).upper()
     return cleaned if cleaned else None
 
-def apply_ecuador_heuristics(raw_text: Optional[str], ocr_conf: float) -> Dict[str, Any]:
+def apply_ecuador_heuristics(
+    raw_text: Optional[str],
+    ocr_conf: float,
+    needs_manual_review: bool = False
+) -> Dict[str, Any]:
     """
     Applies Ecuadorian ANT heuristics gently as a prior.
     Returns:
@@ -40,7 +44,7 @@ def apply_ecuador_heuristics(raw_text: Optional[str], ocr_conf: float) -> Dict[s
       plate_normalized: uppercase alphanumeric
       plate_corrected: contextual correction if applicable
       plate_correction_reason: justification string
-      plate_status: OK, BAJA_CONFIANZA, PLACA_NO_LEGIBLE, etc.
+      plate_status: OK, BAJA_CONFIANZA, REVISION_MANUAL, PLACA_NO_LEGIBLE, etc.
     """
     if not raw_text or len(raw_text.strip()) == 0:
         return {
@@ -117,7 +121,10 @@ def apply_ecuador_heuristics(raw_text: Optional[str], ocr_conf: float) -> Dict[s
     is_standard_moto = bool(re.match(r'^[A-Z]{2}[0-9]{3}[A-Z]$', corrected_str))
     is_standard = is_standard_car or is_standard_moto
 
-    if is_standard and ocr_conf >= 0.75:
+    if needs_manual_review:
+        status = 'REVISION_MANUAL'
+        reasons.append("Ambigüedad en lectura: requiere revisión manual")
+    elif is_standard and ocr_conf >= 0.75:
         status = 'OK'
     elif ocr_conf < 0.60:
         status = 'BAJA_CONFIANZA'

@@ -4,6 +4,8 @@ Handles plate bounding box detection, quality ranking, OCR candidate scoring,
 and evidence artifact generation.
 """
 import os
+import json
+import logging
 from typing import List, Dict, Tuple, Optional, Any
 import numpy as np
 import cv2
@@ -15,16 +17,23 @@ from src.quality_ranker import QualityRanker
 from src.timer_profiler import PipelineProfiler
 from src.ecuador_plate_validator import PROVINCE_CODES
 
+logger = logging.getLogger(__name__)
+
 def vote_plate_characters(
-    scored_candidates: List[Dict]
-) -> Tuple[Optional[str], float, Optional[np.ndarray], Optional[float], float]:
+    scored_candidates: List[Dict],
+    province_prior_p: float = 0.0,
+    manual_review_threshold: float = 0.0
+) -> Tuple[Optional[str], float, Optional[np.ndarray], Optional[float], float, bool]:
     """
     Performs character-level weighted voting across multiple OCR candidate reads.
     Ponders each character vote by its character confidence, crop quality score,
-    and a gentle prior boost if conforming to valid Ecuadorian plate formats.
+    a gentle prior boost if conforming to valid Ecuadorian plate formats,
+    and optional soft Pichincha preference on the first character.
+    Returns:
+        (consensus_text, consensus_conf, best_crop, best_timestamp, best_det_conf, needs_manual_review)
     """
     if not scored_candidates:
-        return None, 0.0, None, None, 0.0
+        return None, 0.0, None, None, 0.0, False
 
     valid = []
     for c in scored_candidates:
@@ -61,11 +70,11 @@ def vote_plate_characters(
             })
 
     if not valid:
-        return None, 0.0, None, None, 0.0
+        return None, 0.0, None, None, 0.0, False
 
     if len(valid) == 1:
         v0 = valid[0]
-        return v0['clean_text'], v0['ocr_conf'], v0['crop'], v0['timestamp'], v0['det_conf']
+        return v0['clean_text'], v0['ocr_conf'], v0['crop'], v0['timestamp'], v0['det_conf'], False
 
     # 1. Determine modal length (prefer standard 7 and 6 char lengths on ties)
     lengths = [len(v['clean_text']) for v in valid]
@@ -80,6 +89,7 @@ def vote_plate_characters(
     # 2. Position by position weighted voting
     consensus_chars = []
     consensus_char_confs = []
+    needs_manual_review = False
 
     for pos in range(modal_len):
         pos_votes: Dict[str, float] = {}
@@ -90,10 +100,22 @@ def vote_plate_characters(
             c_conf = cand['char_confs'][pos] if pos < len(cand['char_confs']) else cand['ocr_conf']
             weight = c_conf * max(0.1, cand['plate_score'])
 
+            # A2: Soft Pichincha prior on pos 0
+            if pos == 0 and char == 'P' and province_prior_p > 0.0:
+                weight += province_prior_p
+
             pos_votes[char] = pos_votes.get(char, 0.0) + weight
             char_raw_confs.setdefault(char, []).append(c_conf)
 
-        winning_char = max(pos_votes.keys(), key=lambda c: pos_votes[c])
+        sorted_votes = sorted(pos_votes.items(), key=lambda x: x[1], reverse=True)
+        winning_char = sorted_votes[0][0]
+
+        # Check manual review threshold on first character if multiple candidates competed
+        if pos == 0 and manual_review_threshold > 0.0 and len(sorted_votes) > 1:
+            diff = sorted_votes[0][1] - sorted_votes[1][1]
+            if diff < manual_review_threshold:
+                needs_manual_review = True
+
         consensus_chars.append(winning_char)
         avg_winning_conf = sum(char_raw_confs[winning_char]) / len(char_raw_confs[winning_char])
         consensus_char_confs.append(avg_winning_conf)
@@ -107,7 +129,7 @@ def vote_plate_characters(
         c['ocr_conf']
     ))
 
-    return consensus_text, consensus_conf, best_cand['crop'], best_cand['timestamp'], best_cand['det_conf']
+    return consensus_text, consensus_conf, best_cand['crop'], best_cand['timestamp'], best_cand['det_conf'], needs_manual_review
 
 def try_two_tier_ocr(
     alpr: ALPR,
@@ -157,9 +179,11 @@ class PlateProcessor:
         alpr: ALPR,
         ranker: QualityRanker,
         profiler: PipelineProfiler,
-        top_k_crops: int = 3,
+        top_k_crops: int = 7,
         vehicle_evidence_dir: str = "evidence/vehicles",
-        plate_evidence_dir: str = "evidence/plates"
+        plate_evidence_dir: str = "evidence/plates",
+        save_manifest: bool = False,
+        province_prior: Optional[Dict[str, Any]] = None
     ):
         self.alpr = alpr
         self.ranker = ranker
@@ -167,11 +191,23 @@ class PlateProcessor:
         self.top_k_crops = top_k_crops
         self.vehicle_evidence_dir = vehicle_evidence_dir
         self.plate_evidence_dir = plate_evidence_dir
+        self.save_manifest = save_manifest
+        self.manifest_records: List[Dict[str, Any]] = []
+        self.last_needs_manual_review = False
+
+        province_cfg = province_prior or {}
+        self.province_prior_enabled = province_cfg.get('enabled', False)
+        self.province_prior_p = province_cfg.get('beta', 0.10) if self.province_prior_enabled else 0.0
+        self.manual_review_threshold = province_cfg.get('manual_review_threshold', 0.15) if self.province_prior_enabled else 0.0
 
         os.makedirs(self.vehicle_evidence_dir, exist_ok=True)
         os.makedirs(self.plate_evidence_dir, exist_ok=True)
 
-    def detect_plate_candidates(self, best_frames: List[VehicleFrameCandidate]) -> List[Dict]:
+    def detect_plate_candidates(
+        self,
+        best_frames: List[VehicleFrameCandidate],
+        event_id: Optional[str] = None
+    ) -> List[Dict]:
         """Detects license plate bounding boxes in vehicle crops and ranks their visual quality."""
         self.profiler.start_stage('plate_detection')
         candidates = []
@@ -201,14 +237,29 @@ class PlateProcessor:
 
                         p_crop = cand.vehicle_crop[py1:py2, px1:px2]
                         q_score = self.ranker.score_plate_crop(p_crop, float(d.confidence))
-                        candidates.append({
-                            'score': q_score,
-                            'det_conf': float(d.confidence),
-                            'crop': p_crop,
-                            'timestamp': cand.timestamp
-                        })
-            except Exception:
-                pass
+                        cand_dict = {
+                            'score': q_score, 'det_conf': float(d.confidence), 'crop': p_crop,
+                            'timestamp': cand.timestamp, 'veh_crop': cand.vehicle_crop,
+                            'bbox': [x1, y1, x2, y2], 'padded_bbox': [px1, py1, px2, py2]
+                        }
+                        candidates.append(cand_dict)
+
+                        # Step A0: Save candidate crops and record manifest if enabled
+                        if self.save_manifest and event_id:
+                            cand_idx = len(self.manifest_records)
+                            cand_sub, veh_sub = os.path.join(self.plate_evidence_dir, "candidates"), os.path.join(self.vehicle_evidence_dir, "candidates")
+                            os.makedirs(cand_sub, exist_ok=True); os.makedirs(veh_sub, exist_ok=True)
+                            p_path = os.path.join(cand_sub, f"{event_id}_cand{cand_idx}_plate.jpg")
+                            v_path = os.path.join(veh_sub, f"{event_id}_cand{cand_idx}_veh.jpg")
+                            cv2.imwrite(p_path, p_crop); cv2.imwrite(v_path, cand.vehicle_crop)
+                            self.manifest_records.append({
+                                "event_id": event_id, "candidate_idx": cand_idx, "timestamp": round(float(cand.timestamp), 3),
+                                "bbox": [x1, y1, x2, y2], "padded_bbox": [px1, py1, px2, py2],
+                                "quality_score": round(float(q_score), 4), "det_conf": round(float(d.confidence), 4),
+                                "plate_crop_path": p_path, "vehicle_crop_path": v_path
+                            })
+            except Exception as e:
+                logger.debug(f"Plate candidate detection exception: {e}", exc_info=True)
         self.profiler.stop_stage('plate_detection')
         return candidates
 
@@ -220,6 +271,7 @@ class PlateProcessor:
         """Executes OCR on top-K ranked plate candidates and calculates consensus votes."""
         self.profiler.start_stage('ocr')
         plate_raw, plate_crop, plate_conf, ocr_conf, best_plate_ts, ocr_votes = None, None, 0.0, 0.0, None, []
+        self.last_needs_manual_review = False
 
         if candidates:
             candidates.sort(key=lambda x: x['score'], reverse=True)
@@ -255,23 +307,40 @@ class PlateProcessor:
                             'crop': item['crop'],
                             'timestamp': item['timestamp']
                         })
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Candidate OCR exception: {e}", exc_info=True)
 
             if scored_ocr:
                 scored_ocr.sort(key=lambda x: (x['ocr_conf'], x['plate_score']), reverse=True)
                 ocr_votes = [(r['text'], round(r['ocr_conf'], 3)) for r in scored_ocr]
-                c_text, c_conf, c_crop, c_ts, c_det_conf = vote_plate_characters(scored_ocr)
+                c_text, c_conf, c_crop, c_ts, c_det_conf, needs_review = vote_plate_characters(
+                    scored_ocr,
+                    province_prior_p=self.province_prior_p,
+                    manual_review_threshold=self.manual_review_threshold
+                )
+                self.last_needs_manual_review = needs_review
                 if c_text is not None:
-                    plate_raw = c_text
-                    ocr_conf = c_conf
-                    plate_crop = c_crop
-                    best_plate_ts = c_ts
-                    plate_conf = c_det_conf
+                    clean_check = "".join(ch for ch in c_text if ch.isalnum())
+                    # Step A4: Reject reads with < 5 characters (e.g. 4W) as sin placa
+                    if len(clean_check) < 5:
+                        logger.info(f"Plate text '{c_text}' rejected (< 5 characters, treated as sin placa)")
+                        plate_raw = None
+                        ocr_conf = 0.0
+                    else:
+                        plate_raw = c_text
+                        ocr_conf = c_conf
+                        plate_crop = c_crop
+                        best_plate_ts = c_ts
+                        plate_conf = c_det_conf
                 else:
                     best = scored_ocr[0]
-                    plate_raw, ocr_conf, plate_conf = best['text'], best['ocr_conf'], best['det_conf']
-                    plate_crop, best_plate_ts = best['crop'], best['timestamp']
+                    clean_check = "".join(ch for ch in best['text'] if ch.isalnum())
+                    if len(clean_check) < 5:
+                        plate_raw = None
+                        ocr_conf = 0.0
+                    else:
+                        plate_raw, ocr_conf, plate_conf = best['text'], best['ocr_conf'], best['det_conf']
+                        plate_crop, best_plate_ts = best['crop'], best['timestamp']
 
                 # Debug: save all candidate crops to evidence/plates/debug/
                 debug_dir = os.path.join(self.plate_evidence_dir, "debug")
@@ -283,13 +352,23 @@ class PlateProcessor:
                     cv2.imwrite(os.path.join(debug_dir, cand_filename), r['crop'])
 
                 cand_summary = " | ".join(f"{r['text']} (c={r['ocr_conf']:.2f}, s={r['plate_score']:.2f})" for r in scored_ocr)
-                print(f"    🔎 [OCR Candidates] {cand_summary} => Consensus: {plate_raw} ({ocr_conf:.2f})")
+                rev_flag = " [REVISION_MANUAL]" if self.last_needs_manual_review else ""
+                print(f"    🔎 [OCR Candidates] {cand_summary} => Consensus: {plate_raw} ({ocr_conf:.2f}){rev_flag}")
             else:
                 top = top_k[0]
                 plate_crop, plate_conf, best_plate_ts = top['crop'], top['det_conf'], top['timestamp']
 
         self.profiler.stop_stage('ocr')
         return plate_raw, plate_crop, plate_conf, ocr_conf, best_plate_ts, ocr_votes
+
+    def write_manifest(self, output_path: Optional[str] = None) -> str:
+        """Writes candidate manifest JSON to disk."""
+        path = output_path or os.path.join(self.plate_evidence_dir, "manifest.json")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(self.manifest_records, f, indent=2, ensure_ascii=False)
+        logger.info(f"Manifest written with {len(self.manifest_records)} records to {path}")
+        return path
 
     def save_evidence(
         self,

@@ -144,11 +144,12 @@ def test_vote_plate_characters_consensus():
         'timestamp': 12.0
     }
 
-    text, conf, crop, ts, det_conf = vote_plate_characters([c1, c2, c3])
+    text, conf, crop, ts, det_conf, needs_review = vote_plate_characters([c1, c2, c3])
     assert text == "PCW2492"
     assert conf > 0.85
     assert det_conf == 0.95
     assert ts == 12.0
+    assert needs_review is False
 
 def test_vote_plate_characters_prior_ecuador():
     # 0CW2492 (invalid ANT prefix '0') vs PCW2492 (valid ANT Pichincha)
@@ -170,8 +171,60 @@ def test_vote_plate_characters_prior_ecuador():
         'crop': np.zeros((10, 10, 3)),
         'timestamp': 2.0
     }
-    text, conf, crop, ts, det_conf = vote_plate_characters([c_inv, c_val])
+    text, conf, crop, ts, det_conf, needs_review = vote_plate_characters([c_inv, c_val])
     assert text == "PCW2492"
+
+def test_vote_plate_characters_soft_pichincha_prior():
+    # Cand 1 has 'A' at pos 0 with higher conf (0.88), Cand 2 has 'P' at pos 0 with lower conf (0.82)
+    # Both are valid Ecuador provinces (A = Azuay, P = Pichincha)
+    c_a = {
+        'text': "AAC2573",
+        'ocr_conf': 0.88,
+        'char_confs': [0.88] * 7,
+        'det_conf': 0.90,
+        'plate_score': 1.0,
+        'crop': np.zeros((10, 10, 3)),
+        'timestamp': 1.0
+    }
+    c_p = {
+        'text': "PAC2573",
+        'ocr_conf': 0.82,
+        'char_confs': [0.82] * 7,
+        'det_conf': 0.90,
+        'plate_score': 1.0,
+        'crop': np.zeros((10, 10, 3)),
+        'timestamp': 2.0
+    }
+    # Without prior: 'A' wins because 0.88 > 0.82
+    text_no_prior, _, _, _, _, _ = vote_plate_characters([c_a, c_p], province_prior_p=0.0)
+    assert text_no_prior == "AAC2573"
+
+    # With soft Pichincha prior beta=0.10: 'P' gets +0.10 boost on pos 0 (0.82 + 0.10 = 0.92 > 0.88) -> 'P' wins!
+    text_with_prior, _, _, _, _, _ = vote_plate_characters([c_a, c_p], province_prior_p=0.10)
+    assert text_with_prior == "PAC2573"
+
+def test_vote_plate_characters_manual_review_threshold():
+    c_a = {
+        'text': "AAC2573",
+        'ocr_conf': 0.85,
+        'char_confs': [0.85] * 7,
+        'det_conf': 0.90,
+        'plate_score': 1.0,
+        'crop': np.zeros((10, 10, 3)),
+        'timestamp': 1.0
+    }
+    c_p = {
+        'text': "PAC2573",
+        'ocr_conf': 0.84,
+        'char_confs': [0.84] * 7,
+        'det_conf': 0.90,
+        'plate_score': 1.0,
+        'crop': np.zeros((10, 10, 3)),
+        'timestamp': 2.0
+    }
+    # Difference between A (0.85) and P (0.84) is 0.01 < manual_review_threshold (0.15)
+    _, _, _, _, _, needs_review = vote_plate_characters([c_a, c_p], manual_review_threshold=0.15)
+    assert needs_review is True
 
 def test_try_two_tier_ocr_aspect_filter():
     mock_alpr = MagicMock()
@@ -233,3 +286,65 @@ def test_recognize_plate_candidates_with_motorcycle(processor):
     assert plate_raw == "JU436A"
     assert ocr_conf > 0.85
     assert best_plate_ts == 25.0
+
+def test_recognize_plate_short_plate_rejected(processor):
+    class DummyRes:
+        def __init__(self, text, conf):
+            self.text = text
+            self.confidence = [conf] * len(text)
+
+    # Candidate with short text (<5 chars, like "4W")
+    processor.alpr.ocr.predict.side_effect = [
+        DummyRes("4W", 0.95),
+        None,  # two-tier returns None
+    ]
+    crop = np.zeros((30, 70, 3), dtype=np.uint8)
+    candidates = [{"crop": crop, "det_conf": 0.90, "score": 0.85, "timestamp": 10.0}]
+
+    plate_raw, plate_crop, plate_conf, ocr_conf, best_plate_ts, ocr_votes = processor.recognize_plate_candidates(candidates)
+    assert plate_raw is None  # Cleaned up to "sin placa"
+    assert ocr_conf == 0.0
+
+def test_detect_plate_candidates_save_manifest(tmp_path):
+    mock_alpr = MagicMock()
+    class DummyBBox:
+        def __init__(self, x1, y1, x2, y2):
+            self.x1, self.y1, self.x2, self.y2 = x1, y1, x2, y2
+
+    class DummyDet:
+        def __init__(self):
+            self.bounding_box = DummyBBox(10, 10, 80, 40)
+            self.confidence = 0.95
+
+    mock_alpr.detector.predict.return_value = [DummyDet()]
+    ranker = QualityRanker()
+    profiler = PipelineProfiler()
+    veh_dir = str(tmp_path / "vehicles")
+    plate_dir = str(tmp_path / "plates")
+
+    proc = PlateProcessor(
+        alpr=mock_alpr,
+        ranker=ranker,
+        profiler=profiler,
+        top_k_crops=3,
+        vehicle_evidence_dir=veh_dir,
+        plate_evidence_dir=plate_dir,
+        save_manifest=True
+    )
+
+    frame_cand = VehicleFrameCandidate(
+        score=0.9,
+        timestamp=12.5,
+        vehicle_crop=np.zeros((100, 150, 3), dtype=np.uint8),
+        bbox_in_full_frame=(100, 100, 250, 200)
+    )
+
+    cands = proc.detect_plate_candidates([frame_cand], event_id="EVT_TEST_001")
+    assert len(cands) == 1
+    assert len(proc.manifest_records) == 1
+    assert proc.manifest_records[0]["event_id"] == "EVT_TEST_001"
+    assert os.path.exists(proc.manifest_records[0]["plate_crop_path"])
+    assert os.path.exists(proc.manifest_records[0]["vehicle_crop_path"])
+
+    manifest_file = proc.write_manifest()
+    assert os.path.exists(manifest_file)
