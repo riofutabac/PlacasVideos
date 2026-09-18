@@ -11,6 +11,24 @@ import json
 import sqlite3
 from typing import Optional
 
+def levenshtein_distance(s1: str, s2: str) -> int:
+    """Calculates Levenshtein edit distance between two strings."""
+    if len(s1) < len(s2):
+        return levenshtein_distance(s2, s1)
+    if len(s2) == 0:
+        return len(s1)
+    previous_row = list(range(len(s2) + 1))
+    for i, c1 in enumerate(s1):
+        current_row = [i + 1]
+        for j, c2 in enumerate(s2):
+            insertions = previous_row[j + 1] + 1
+            deletions = current_row[j] + 1
+            substitutions = previous_row[j] + (c1 != c2)
+            current_row.append(min(insertions, deletions, substitutions))
+        previous_row = current_row
+    return previous_row[-1]
+
+
 def evaluate_run(db_path: str = "data/events.sqlite", run_id: Optional[str] = None, gt_path: str = "benchmarks/ground_truth.json"):
     if not os.path.exists(gt_path):
         print(f"Ground truth not found at {gt_path}")
@@ -53,6 +71,9 @@ def evaluate_run(db_path: str = "data/events.sqlite", run_id: Optional[str] = No
     exact_plate_matches = 0
     legible_gt_plates = sum(1 for gt in ground_truth if gt.get('plate_legible'))
 
+    total_gt_chars = 0
+    total_char_errors = 0
+
     for det in eval_detected:
         det_ts = det['event_timestamp']
         det_video = det['video_source']
@@ -80,11 +101,16 @@ def evaluate_run(db_path: str = "data/events.sqlite", run_id: Optional[str] = No
                 # Compare without dashes
                 gt_clean = gt['plate_text'].replace("-", "").strip().upper()
                 det_clean = det_plate.replace("-", "").strip().upper()
-                if gt_clean == det_clean:
+                dist = levenshtein_distance(gt_clean, det_clean)
+                correct_chars = max(0, len(gt_clean) - dist)
+                total_gt_chars += len(gt_clean)
+                total_char_errors += dist
+
+                if dist == 0:
                     exact_plate_matches += 1
-                    print(f"  [MATCH] GT: {gt['ground_truth_id']} ({gt_clean}) == DET: {det['event_id']} ({det_clean}) [dt={best_dt:.1f}s, dir={det_dir}]")
+                    print(f"  [MATCH] GT: {gt['ground_truth_id']} ({gt_clean}) == DET: {det['event_id']} ({det_clean}) [dist=0, {len(gt_clean)}/{len(gt_clean)} chars, dt={best_dt:.1f}s]")
                 else:
-                    print(f"  [PARTIAL] GT: {gt['ground_truth_id']} ({gt_clean}) vs DET: {det['event_id']} ({det_clean}) [dt={best_dt:.1f}s]")
+                    print(f"  [PARTIAL] GT: {gt['ground_truth_id']} ({gt_clean}) vs DET: {det['event_id']} ({det_clean}) [dist={dist}, {correct_chars}/{len(gt_clean)} chars, dt={best_dt:.1f}s]")
             else:
                 print(f"  [MATCH VEHICLE] GT: {gt['ground_truth_id']} == DET: {det['event_id']} [dir={det_dir}, plate={det_plate}]")
 
@@ -95,12 +121,14 @@ def evaluate_run(db_path: str = "data/events.sqlite", run_id: Optional[str] = No
     event_recall = len(matched_gt) / len(ground_truth) if ground_truth else 0.0
     dir_acc = matched_direction / len(matched_gt) if matched_gt else 0.0
     plate_acc = exact_plate_matches / legible_gt_plates if legible_gt_plates else 0.0
+    char_acc = max(0.0, (total_gt_chars - total_char_errors) / total_gt_chars) if total_gt_chars > 0 else 0.0
     false_positives = len(eval_detected) - len(matched_gt)
 
     print("-"*60)
     print(f"EVENT RECALL:          {event_recall:.1%} ({len(matched_gt)}/{len(ground_truth)})")
     print(f"DIRECTION ACCURACY:    {dir_acc:.1%} ({matched_direction}/{len(matched_gt)})")
     print(f"PLATE EXACT MATCH:     {plate_acc:.1%} ({exact_plate_matches}/{legible_gt_plates} legible)")
+    print(f"CHARACTER ACCURACY:    {char_acc:.1%} ({total_gt_chars - total_char_errors}/{total_gt_chars} chars)")
     print(f"FALSE POSITIVES:       {false_positives}")
     print("="*60 + "\n")
 
@@ -108,6 +136,7 @@ def evaluate_run(db_path: str = "data/events.sqlite", run_id: Optional[str] = No
         "event_recall": event_recall,
         "direction_accuracy": dir_acc,
         "plate_exact_match": plate_acc,
+        "character_accuracy": char_acc,
         "false_positives": false_positives,
         "matched_gt_count": len(matched_gt),
         "total_gt_count": len(ground_truth)

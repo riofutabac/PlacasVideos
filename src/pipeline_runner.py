@@ -316,14 +316,16 @@ class ALPRPipeline:
             return None
 
         best_cand = track.best_vehicle_frames[0]
-        candidates = self.plate_processor.detect_plate_candidates(track.best_vehicle_frames)
-        plate_raw, plate_crop, plate_conf, ocr_conf, best_plate_ts, ocr_votes = self.plate_processor.recognize_plate_candidates(candidates)
-
-        heuristics = apply_ecuador_heuristics(plate_raw, ocr_conf)
         crossing_ts = track.crossing_timestamp or track.first_timestamp
         event_dt = clip_start_dt + timedelta(seconds=crossing_ts)
         event_id = f"EVT_{os.path.splitext(video_source)[0][-4:]}_{track.track_id:04d}_{int(crossing_ts)}"
 
+        candidates = self.plate_processor.detect_plate_candidates(track.best_vehicle_frames)
+        plate_raw, plate_crop, plate_conf, ocr_conf, best_plate_ts, ocr_votes = self.plate_processor.recognize_plate_candidates(
+            candidates, event_id=event_id
+        )
+
+        heuristics = apply_ecuador_heuristics(plate_raw, ocr_conf)
         veh_path, plate_path = self.plate_processor.save_evidence(event_id, best_cand.vehicle_crop, plate_crop)
 
         abs_ts = event_dt.timestamp()

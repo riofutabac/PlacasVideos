@@ -60,7 +60,8 @@ class PlateProcessor:
 
     def recognize_plate_candidates(
         self,
-        candidates: List[Dict]
+        candidates: List[Dict],
+        event_id: Optional[str] = None
     ) -> Tuple[Optional[str], Optional[np.ndarray], float, float, Optional[float], list]:
         """Executes OCR on top-K ranked plate candidates and calculates consensus votes."""
         self.profiler.start_stage('ocr')
@@ -80,6 +81,7 @@ class PlateProcessor:
                         scored_ocr.append({
                             'text': text,
                             'ocr_conf': avg_c,
+                            'char_confs': confs,
                             'det_conf': item['det_conf'],
                             'plate_score': item['score'],
                             'crop': item['crop'],
@@ -94,6 +96,18 @@ class PlateProcessor:
                 plate_raw, ocr_conf, plate_conf = best['text'], best['ocr_conf'], best['det_conf']
                 plate_crop, best_plate_ts = best['crop'], best['timestamp']
                 ocr_votes = [(r['text'], round(r['ocr_conf'], 3)) for r in scored_ocr]
+
+                # Debug: save all candidate crops to evidence/plates/debug/
+                debug_dir = os.path.join(self.plate_evidence_dir, "debug")
+                os.makedirs(debug_dir, exist_ok=True)
+                evt_prefix = event_id if event_id else "candidate"
+                for idx, r in enumerate(scored_ocr):
+                    clean_text = "".join(c for c in r['text'] if c.isalnum())
+                    cand_filename = f"{evt_prefix}_rank{idx}_{clean_text}_c{int(r['ocr_conf']*100)}.jpg"
+                    cv2.imwrite(os.path.join(debug_dir, cand_filename), r['crop'])
+
+                cand_summary = " | ".join(f"{r['text']} (c={r['ocr_conf']:.2f}, s={r['plate_score']:.2f})" for r in scored_ocr)
+                print(f"    🔎 [OCR Candidates] {cand_summary}")
             else:
                 top = top_k[0]
                 plate_crop, plate_conf, best_plate_ts = top['crop'], top['det_conf'], top['timestamp']
