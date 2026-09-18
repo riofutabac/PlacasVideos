@@ -176,7 +176,7 @@ def main():
     print("🚗 RESULTADOS DEL TRÁFICO Y VEHÍCULOS CAPTURADOS")
     print("─" * 72)
     print(f" • Total de Tránsitos Registrados:  {total_ev} vehículos únicos")
-    print(f" • Placas leídas con éxito (OK):   {total_ok_plates} placas ({(total_ok_plates/max(1,total_ev))*100:.1f}%)")
+    print(f" • Placas con formato ANT válido:  {total_ok_plates} detectadas ({(total_ok_plates/max(1,total_ev))*100:.1f}%) [Para exactitud vs Ground Truth ver evaluate_pipeline.py]")
     print(f" • Distribución por Tipo:          Autos: {total_cars} | Camiones: {total_trucks} | Buses: {total_buses} | Motos: {total_motos}")
     print(f" • Sentidos de Circulación:         Entradas: {dir_entradas} | Salidas: {dir_salidas}")
 

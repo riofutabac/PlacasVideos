@@ -136,6 +136,8 @@ class VehicleDetectorRunner:
 
                     self.ort_session = ort.InferenceSession(onnx_path, sess_options=opts, providers=providers)
                     active_providers = self.ort_session.get_providers()
+                    if self.runtime == "ort_trt" and "TensorrtExecutionProvider" not in active_providers:
+                        raise RuntimeError(f"TensorrtExecutionProvider no disponible en este entorno (activos: {active_providers})")
                     if 'CUDAExecutionProvider' in active_providers or 'TensorrtExecutionProvider' in active_providers:
                         self.io_binding = self.ort_session.io_binding()
                         logger.info(f"✅ Initialized ONNX Runtime with providers: {active_providers}")

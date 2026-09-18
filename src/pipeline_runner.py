@@ -26,7 +26,6 @@ from src.deduplicator import EventDeduplicator
 from src.ecuador_plate_validator import apply_ecuador_heuristics
 from src.model_resolver import resolve_vehicle_model
 from src.vehicle_runtime import VehicleDetectorRunner
-from src.threading_profile import configure_threading_profile
 from src.video_decoder import create_decoder
 from src.pipeline_types import (
     VehicleFrameCandidate,
@@ -144,7 +143,7 @@ class ALPRPipeline:
             'ocr_engine': f"{ocr_model} ({self.device.upper()})"
         }
 
-        self.thread_profile = configure_threading_profile(self.device, self.cfg.get('performance', {}).get('threads'))
+        cv2.setNumThreads(cv2.getNumberOfCPUs())
 
         if self.device == 'cuda':
             torch.backends.cudnn.benchmark = True

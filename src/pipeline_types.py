@@ -10,7 +10,15 @@ from dataclasses import dataclass, field
 import numpy as np
 
 def get_clip_start_datetime(video_filename: str) -> datetime:
-    """Derives realistic timestamp from clip filename and calibrated camera clock."""
+    """Derives realistic timestamp from camera OSD clock with extrapolation fallback."""
+    try:
+        from src.clock_reader import read_clip_start_datetime
+        osd_dt = read_clip_start_datetime(video_filename)
+        if osd_dt is not None:
+            return osd_dt
+    except Exception:
+        pass
+
     base = os.path.basename(video_filename)
     match_date = re.search(r'_(\d{4})(\d{2})(\d{2})', base)
     if match_date:

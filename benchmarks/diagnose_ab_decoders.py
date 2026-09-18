@@ -162,9 +162,10 @@ def run_full_ab_pipeline(clips: List[str]):
     
     for backend in ["opencv", "nvdec"]:
         print(f"\n🚀 EJECUTANDO PIPELINE CON BACKEND: {backend.upper()}")
-        print("-" * 50)
-        
-        pipeline = ALPRPipeline()
+        ab_db_path = f"data/events_ab_{backend}.sqlite"
+        if os.path.exists(ab_db_path):
+            os.remove(ab_db_path)
+        pipeline = ALPRPipeline(db_path=ab_db_path)
         pipeline.cfg.setdefault('video', {})['decode_backend'] = backend
         run_id = f"AB_{backend.upper()}_{int(time.time())}"
         
@@ -244,9 +245,9 @@ def run_full_ab_pipeline(clips: List[str]):
     # Ground Truth Evaluation for both runs
     from benchmarks.evaluate_pipeline import evaluate_run
     print("--- EVALUACIÓN GROUND TRUTH: OpenCV ---")
-    evaluate_run("data/events.sqlite", cv_r.get('run_id'))
+    evaluate_run("data/events_ab_opencv.sqlite", cv_r.get('run_id'))
     print("\n--- EVALUACIÓN GROUND TRUTH: NVDEC ---")
-    evaluate_run("data/events.sqlite", nv_r.get('run_id'))
+    evaluate_run("data/events_ab_nvdec.sqlite", nv_r.get('run_id'))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="A/B Decoder Diagnostic Tool")

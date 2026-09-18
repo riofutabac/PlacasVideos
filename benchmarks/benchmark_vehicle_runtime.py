@@ -132,7 +132,19 @@ def benchmark_runtime(
         if runner_cache is not None:
             runner_cache[cache_key] = runner
 
-    # Warmup
+    if runner is None:
+        return {
+            "runtime": runtime_key,
+            "label": runtime_label,
+            "status": "NOT_AVAILABLE",
+            "preprocess_ms": None,
+            "inference_ms": None,
+            "postprocess_ms": None,
+            "total_p50_ms": None,
+            "total_p95_ms": None,
+            "fps_equivalent": None,
+            "speedup_vs_baseline": None
+        }
     for i in range(min(warmup_iters, len(frames))):
         if runner:
             try:
