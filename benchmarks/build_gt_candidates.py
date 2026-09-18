@@ -19,6 +19,7 @@ from typing import List, Dict, Any, Optional
 # Ensure project root is in sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.ecuador_plate_validator import PROVINCE_CODES
+from src.pipeline_types import get_clip_start_datetime
 
 def parse_time_cell(val: Any) -> Optional[time]:
     if isinstance(val, time):
@@ -93,6 +94,8 @@ def match_with_database(
 
     for idx, audit in enumerate(audit_entries):
         plate = audit["plate_text"]
+        t2_val = parse_time_cell(audit.get("time_cam2"))
+
         cand_entry = {
             "ground_truth_id": f"GT_CAND_{idx+1:03d}",
             "plate_text": plate,
@@ -103,6 +106,8 @@ def match_with_database(
             "audit_time_cam1": audit["time_cam1"],
             "audit_time_cam2": audit["time_cam2"],
             "matched_event_id": None,
+            "match_type": None,
+            "time_diff_sec": None,
             "video_source": None,
             "approx_timestamp": None,
             "pipeline_detected_plate": None,
@@ -111,16 +116,45 @@ def match_with_database(
             "confidence_ocr": None
         }
 
-        # Try to find corresponding event in SQLite DB
+        # Match strategy:
+        # 1. First priority: temporal proximity to audit_time_cam2 (camera 2 ground truth time) + plate/type match
+        # 2. Second priority: exact plate match (fallback if timestamp not available or test database)
         best_match = None
-        for evt in db_events:
-            det_p = (evt.get("plate_corrected") or evt.get("plate_normalized") or "").strip().upper()
-            if det_p == plate:
-                best_match = evt
-                break
+        best_diff = 999999.0
+        match_type = None
+
+        if t2_val is not None:
+            audit_dt = datetime(2026, 9, 9, t2_val.hour, t2_val.minute, t2_val.second)
+            for evt in db_events:
+                v_src = evt.get("video_source") or ""
+                ts = float(evt.get("event_timestamp") or 0.0)
+                evt_dt = get_clip_start_datetime(v_src) + timedelta(seconds=ts)
+                diff = abs((evt_dt - audit_dt).total_seconds())
+                det_p = (evt.get("plate_corrected") or evt.get("plate_normalized") or "").strip().upper()
+                if diff <= tolerance_minutes * 60:
+                    if det_p == plate:
+                        best_match = evt
+                        best_diff = diff
+                        match_type = "EXACT_PLATE_AND_TIME"
+                        break
+                    elif diff < best_diff:
+                        best_match = evt
+                        best_diff = diff
+                        match_type = "TIME_WINDOW"
+
+        if not best_match:
+            for evt in db_events:
+                det_p = (evt.get("plate_corrected") or evt.get("plate_normalized") or "").strip().upper()
+                if det_p == plate:
+                    best_match = evt
+                    match_type = "EXACT_PLATE_FALLBACK"
+                    best_diff = None
+                    break
 
         if best_match:
             cand_entry["matched_event_id"] = best_match.get("event_id")
+            cand_entry["match_type"] = match_type
+            cand_entry["time_diff_sec"] = round(best_diff, 2) if best_diff is not None and best_diff < 999999 else None
             cand_entry["video_source"] = best_match.get("video_source")
             cand_entry["approx_timestamp"] = best_match.get("event_timestamp")
             cand_entry["pipeline_detected_plate"] = best_match.get("plate_corrected")

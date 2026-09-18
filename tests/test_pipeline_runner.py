@@ -14,10 +14,10 @@ from src.pipeline_runner import ALPRPipeline
 
 def test_get_clip_start_datetime():
     dt60 = get_clip_start_datetime("Camara Placas 2_20260909105651-20260909163038(60).mp4")
-    assert dt60.hour == 16 and dt60.minute == 17 and dt60.second == 20
+    assert dt60.hour == 16 and dt60.minute == 17 and dt60.second == 16
 
     dt61 = get_clip_start_datetime("Camara Placas 2_20260909105651-20260909163038(61).mp4")
-    assert dt61.hour == 16 and dt61.minute == 22 and dt61.second == 45
+    assert dt61.hour == 16 and dt61.minute == 22 and dt61.second == 46
 
     dt_other = get_clip_start_datetime("video_unknown.mp4")
     assert dt_other.hour == 16 and dt_other.minute == 0

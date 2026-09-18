@@ -31,11 +31,11 @@ class QualityRanker:
             'border_penalty': 0.10
         }
         self.w_p = weights_plate or {
-            'conf': 0.30,
-            'area': 0.25,
-            'sharpness': 0.25,
+            'conf': 0.15,
+            'area': 0.35,
+            'sharpness': 0.35,
             'aspect': 0.10,
-            'overexposure': 0.10
+            'overexposure': 0.05
         }
 
     def score_vehicle_frame(
@@ -96,23 +96,24 @@ class QualityRanker:
         if h == 0 or w == 0:
             return 0.0
 
-        # 1. Aspect ratio plausibility (Ecuadorian plates are approx 2:1 to 2.5:1 ratio: 400x200mm)
+        # 1. Aspect ratio plausibility:
+        # Standard Ecuadorian plates (cars/trucks) ~ 2:1 to 2.5:1 (400x200 mm)
+        # Ecuadorian motorcycle plates ~ 1:1 to 1.3:1 (130x150 mm)
         aspect = w / float(h)
-        # Optimal aspect ~ 2.0; penalize if < 1.2 or > 3.5
-        if 1.5 <= aspect <= 2.6:
+        if (1.4 <= aspect <= 2.8) or (0.85 <= aspect <= 1.35):
             aspect_score = 1.0
-        elif 1.2 <= aspect < 1.5 or 2.6 < aspect <= 3.2:
+        elif (1.2 <= aspect < 1.4) or (2.8 < aspect <= 3.4):
             aspect_score = 0.7
         else:
             aspect_score = 0.3
 
-        # 2. Sharpness
+        # 2. Sharpness (normalized against realistic Laplacian var on plates: 1,000 to 6,500)
         var = calculate_sharpness(plate_crop)
-        norm_sharpness = min(1.0, var / 300.0)
+        norm_sharpness = min(1.0, max(0.0, var / 6500.0))
 
-        # 3. Area (scaling up to ~120x60 px)
+        # 3. Area (scaling up to ~110x55 px)
         area = w * h
-        norm_area = min(1.0, area / (120.0 * 60.0))
+        norm_area = min(1.0, area / (110.0 * 55.0))
 
         # 4. Overexposure penalty
         overexp_penalty = calculate_overexposure_penalty(plate_crop)

@@ -21,13 +21,11 @@ def get_clip_start_datetime(video_filename: str) -> datetime:
     match = re.search(r'\((\d+)\)\.mp4$', base)
     if match:
         clip_num = int(match.group(1))
-        if clip_num == 60:
-            return datetime(year, month, day, 16, 17, 20)
-        elif clip_num == 61:
-            return datetime(year, month, day, 16, 22, 45)
-        else:
-            base_time = datetime(year, month, day, 16, 17, 20)
-            return base_time + timedelta(seconds=(clip_num - 60) * 325.0)
+        # Dahua NVR continuous export clips are 330.0s (5m30s) each
+        # Calibrated against on-screen camera OSD clock:
+        # Clip 60: 16:17:16, Clip 61: 16:22:46
+        base_time = datetime(year, month, day, 16, 17, 16)
+        return base_time + timedelta(seconds=(clip_num - 60) * 330.0)
     return datetime(year, month, day, 16, 0, 0)
 
 @dataclass
