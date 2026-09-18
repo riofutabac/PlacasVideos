@@ -254,8 +254,11 @@ class ALPRPipeline:
                 frame_idx = f_idx + 1
 
                 self.profiler.start_stage('motion_gate')
-                raw_roi = (frame[:dec_h, :] if is_dec_cropped else frame[cy1:cy2, cx1:cx2]) if is_nv12 else (frame if is_dec_cropped else frame[cy1:cy2, cx1:cx2])
-                run_detector = self.motion_gate.should_run_detector(raw_roi, timestamp)
+                # NV12 frames are (h*3/2, w): the motion gate only needs the luma plane,
+                # but the BGR conversion needs the full Y+UV buffer.
+                raw_roi = frame if is_dec_cropped else frame[cy1:cy2, cx1:cx2]
+                gate_roi = frame[:dec_h, :] if (is_nv12 and is_dec_cropped) else raw_roi
+                run_detector = self.motion_gate.should_run_detector(gate_roi, timestamp)
                 self.profiler.stop_stage('motion_gate')
 
                 if not run_detector:

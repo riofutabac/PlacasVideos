@@ -101,3 +101,46 @@ def test_pipeline_finalize_vehicle_event(pipeline):
     stored = pipeline.db.get_events_for_run(run_id="RUN_TEST")
     assert len(stored) == 1
     assert stored[0]["event_id"] == "EVT_(60)_0042_25"
+
+
+class _FakeCroppedNV12Decoder:
+    """Mimics NVDECDecoder with hardware crop: yields raw (h*3/2, w) NV12 buffers."""
+
+    def __init__(self, h: int, w: int, n_frames: int = 3):
+        self.crop_h, self.crop_w = h, w
+        self.height, self.width = h, w
+        self.is_cropped = True
+        self.frame_format = "nv12"
+        self.duration_sec = float(n_frames)
+        self._n = n_frames
+        self.to_bgr_shapes = []
+
+    def __iter__(self):
+        for i in range(self._n):
+            yield i, float(i), np.full((self.crop_h * 3 // 2, self.crop_w), 128, dtype=np.uint8)
+
+    def to_bgr(self, frame, dst=None):
+        from src.decoder import nv12_to_bgr_full_range
+        self.to_bgr_shapes.append(frame.shape)
+        return nv12_to_bgr_full_range(frame, self.crop_h, self.crop_w, dst=dst)
+
+    def release(self):
+        pass
+
+
+def test_nvdec_cropped_frames_convert_full_nv12_buffer(pipeline, tmp_path):
+    """Regression: v1.9 passed only the luma plane to to_bgr, crashing every NVDEC clip."""
+    h, w = 64, 96
+    decoder = _FakeCroppedNV12Decoder(h, w)
+    bgr_buf = np.empty((h, w, 3), dtype=np.uint8)
+    video = tmp_path / "Camara Placas 2_20260909105651-20260909163038(60).mp4"
+    video.write_bytes(b"fake")
+
+    with patch.object(pipeline, "_init_clip_decoder",
+                      return_value=(decoder, bgr_buf, True, True, h, w, 0, 0, w, h)), \
+         patch.object(pipeline.motion_gate, "should_run_detector", return_value=True) as gate, \
+         patch.object(pipeline, "_detect_and_filter_vehicles", return_value=([], [], [])):
+        pipeline.process_video_file(str(video), run_id="RUN_TEST")
+
+    assert decoder.to_bgr_shapes == [(h * 3 // 2, w)] * 3
+    assert all(call.args[0].shape == (h, w) for call in gate.call_args_list)
