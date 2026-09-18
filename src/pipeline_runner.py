@@ -24,6 +24,7 @@ from src.quality_ranker import QualityRanker
 from src.deduplicator import EventDeduplicator
 from src.ecuador_plate_validator import apply_ecuador_heuristics
 from src.model_resolver import resolve_vehicle_model
+from src.vehicle_runtime import VehicleDetectorRunner
 from src.video_decoder import create_decoder
 from src.pipeline_types import (
     VehicleFrameCandidate,
@@ -91,10 +92,19 @@ class ALPRPipeline:
         self.vehicle_imgsz = m_veh.get('imgsz', 416)
         model_name = resolve_vehicle_model(req_model, imgsz=self.vehicle_imgsz)
 
-        print(f"Loading vehicle detector ({model_name}) on device='{self.device}'...")
-        self.vehicle_model = YOLO(model_name)
-        self.vehicle_classes = m_veh.get('classes', [0, 1, 2, 3, 5, 7])
-        self.vehicle_conf = m_veh.get('conf_threshold', 0.25)
+        runtime_mode = m_veh.get('runtime', 'ultralytics')
+        self.vehicle_runner = VehicleDetectorRunner(
+            model_name=model_name,
+            runtime=runtime_mode,
+            imgsz=self.vehicle_imgsz,
+            conf_threshold=m_veh.get('conf_threshold', 0.25),
+            classes=m_veh.get('classes', [0, 1, 2, 3, 5, 7]),
+            device=self.device,
+            model_factory=YOLO
+        )
+        self.vehicle_model = self.vehicle_runner
+        self.vehicle_classes = self.vehicle_runner.classes
+        self.vehicle_conf = self.vehicle_runner.conf_threshold
 
         # FastALPR Model Loading
         m_plate = self.cfg.get('models', {}).get('plate_detector', {})
@@ -167,34 +177,26 @@ class ALPRPipeline:
 
     def _detect_and_filter_vehicles(self, crop_roi: np.ndarray, cx1: int, cy1: int, timestamp: float):
         self.profiler.start_stage('vehicle_detection')
-        with torch.inference_mode():
-            yolo_res = self.vehicle_model(
-                crop_roi,
-                imgsz=self.vehicle_imgsz,
-                verbose=False,
-                conf=self.vehicle_conf,
-                classes=self.vehicle_classes,
-                device=self.device
-            )[0]
+        raw_boxes, raw_confs, raw_classes, timing = self.vehicle_runner.predict(
+            crop_roi, imgsz=self.vehicle_imgsz, conf=self.vehicle_conf, classes=self.vehicle_classes
+        )
         self.profiler.stop_stage('vehicle_detection')
+        self.profiler.record_stage_time('vehicle_preprocess', timing.get('preprocess', 0.0))
+        self.profiler.record_stage_time('vehicle_inference', timing.get('inference', 0.0))
 
+        t_post_start = time.perf_counter()
         valid_boxes, valid_confs, valid_classes = [], [], []
-        for box in yolo_res.boxes:
-            rx1, ry1, rx2, ry2 = box.xyxy[0].cpu().numpy()
-            conf = float(box.conf[0].item())
-            cls_id = int(box.cls[0].item())
+        for (rx1, ry1, rx2, ry2), conf, cls_id in zip(raw_boxes, raw_confs, raw_classes):
             fx1, fy1, fx2, fy2 = int(rx1 + cx1), int(ry1 + cy1), int(rx2 + cx1), int(ry2 + cy1)
-            contact_point = ((fx1 + fx2) // 2, fy2)
-
             if fx1 < 500 and fy2 > 1300 and (fx2 - fx1) > 300:
                 continue
-            if self.is_point_in_gravel(contact_point):
-                if cls_id in (0, 1):
-                    cls_id = 3
+            if self.is_point_in_gravel(((fx1 + fx2) // 2, fy2)):
                 valid_boxes.append([rx1, ry1, rx2, ry2])
                 valid_confs.append(conf)
-                valid_classes.append(cls_id)
+                valid_classes.append(3 if cls_id in (0, 1) else cls_id)
 
+        post_extra = time.perf_counter() - t_post_start
+        self.profiler.record_stage_time('vehicle_postprocess', timing.get('postprocess', 0.0) + post_extra)
         if valid_boxes:
             self.motion_gate.notify_vehicle_detected(timestamp)
         return valid_boxes, valid_confs, valid_classes

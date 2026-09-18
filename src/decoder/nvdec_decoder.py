@@ -48,8 +48,8 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
         self._producer_thread: Optional[threading.Thread] = None
         self._producer_error: Optional[Exception] = None
 
-    def _build_cmd(self, use_cuvid_fallback: bool = False) -> list:
-        if use_cuvid_fallback:
+    def _build_cmd(self, use_cuvid: bool = True, use_hw_crop: bool = True) -> list:
+        if use_cuvid:
             cuvid_codec = "hevc_cuvid" if self.codec in ("hevc", "h265") else "h264_cuvid"
             cmd = [
                 "ffmpeg",
@@ -57,11 +57,19 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
                 "-nostdin",
                 "-loglevel", "error",
                 "-c:v", cuvid_codec,
+            ]
+            if self.is_cropped and use_hw_crop:
+                top = self.cy1
+                bottom = self.height - self.cy2
+                left = self.cx1
+                right = self.width - self.cx2
+                cmd.extend(["-crop", f"{top}x{bottom}x{left}x{right}"])
+            cmd.extend([
                 "-i", self.video_path,
                 "-map", "0:v:0",
                 "-an", "-sn", "-dn",
-            ]
-            if self.is_cropped:
+            ])
+            if self.is_cropped and not use_hw_crop:
                 cmd.extend(["-vf", f"crop={self.crop_w}:{self.crop_h}:{self.cx1}:{self.cy1}"])
             cmd.extend([
                 "-pix_fmt", "nv12",
@@ -71,7 +79,7 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
             ])
             return cmd
 
-        # Primary benchmark Test 2: Hardware NVDEC + DMA hwdownload + crop NV12
+        # Hardware NVDEC via CUDA hwaccel + DMA hwdownload + crop
         cmd = [
             "ffmpeg",
             "-hide_banner",
@@ -97,57 +105,59 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
         return cmd
 
     def _producer_worker(self):
-        cmd = self._build_cmd(use_cuvid_fallback=False)
-        self.proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            bufsize=10485760  # 10 MB buffer
-        )
-        stdout = self.proc.stdout
         out_w = self.crop_w if self.is_cropped else self.width
         out_h = self.crop_h if self.is_cropped else self.height
         nv12_h = out_h * 3 // 2
         frame_bytes = out_w * nv12_h
         frame_idx = 0
 
+        configs = [
+            ("cuvid_hw_crop", True, True),
+            ("cuda_hwdownload", False, False),
+            ("cuvid_vf_crop", True, False)
+        ]
+        raw_buf = None
+        last_err = ""
+        for cfg_name, use_cuvid, use_hw in configs:
+            cmd = self._build_cmd(use_cuvid=use_cuvid, use_hw_crop=use_hw)
+            self.proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=10485760  # 10 MB buffer
+            )
+            stdout = self.proc.stdout
+            if self.profiler:
+                self.profiler.start_stage('decode_nvdec')
+            raw_buf = _read_exact(stdout, frame_bytes)
+            if self.profiler:
+                self.profiler.stop_stage('decode_nvdec')
+
+            if raw_buf is not None:
+                break
+            else:
+                try:
+                    last_err = self.proc.stderr.read().decode('utf-8', errors='replace').strip()
+                except Exception:
+                    pass
+                try:
+                    self.proc.terminate()
+                    self.proc.wait(timeout=1.0)
+                except Exception:
+                    pass
+                self.proc = None
+
+        if raw_buf is None:
+            raise RuntimeError(f"All NVDEC pipeline options failed: {last_err}")
+
         try:
             while not self._stop_event.is_set():
-                if self.profiler:
-                    self.profiler.start_stage('decode_nvdec')
-                raw_buf = _read_exact(stdout, frame_bytes)
-                if self.profiler:
-                    self.profiler.stop_stage('decode_nvdec')
-
                 if raw_buf is None:
-                    if frame_idx == 0:
-                        err_msg = ""
-                        try:
-                            err_msg = self.proc.stderr.read().decode('utf-8', errors='replace').strip()
-                        except Exception:
-                            pass
-                        print(f"⚠️ [FFmpegNVDECDecoder] NVDEC CUDA falló en frame 0 ({err_msg}). Intentando CUVID...")
-                        if self.proc:
-                            self.proc.terminate()
-                        cuvid_cmd = self._build_cmd(use_cuvid_fallback=True)
-                        self.proc = subprocess.Popen(
-                            cuvid_cmd,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
-                            bufsize=10485760
-                        )
-                        stdout = self.proc.stdout
-                        if self.profiler:
-                            self.profiler.start_stage('decode_nvdec')
-                        raw_buf = _read_exact(stdout, frame_bytes)
-                        if self.profiler:
-                            self.profiler.stop_stage('decode_nvdec')
-                        if raw_buf is not None:
-                            print("✅ [FFmpegNVDECDecoder] CUVID funcionó correctamente.")
-                        else:
-                            raise RuntimeError(f"NVDEC and CUVID both failed: {err_msg}")
-                    else:
-                        break
+                    if self.profiler:
+                        self.profiler.start_stage('decode_nvdec')
+                    raw_buf = _read_exact(self.proc.stdout, frame_bytes)
+                    if self.profiler:
+                        self.profiler.stop_stage('decode_nvdec')
 
                 if raw_buf is None:
                     break
@@ -172,6 +182,7 @@ class FFmpegNVDECDecoder(BaseVideoDecoder):
                 if not pushed and self._stop_event.is_set():
                     break
 
+                raw_buf = None
                 frame_idx += 1
 
         except Exception as e:

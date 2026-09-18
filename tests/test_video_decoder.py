@@ -58,3 +58,32 @@ def test_lut_table_properties():
     assert len(_FULL_TO_BT601_Y_LUT) == 256
     assert _FULL_TO_BT601_Y_LUT[0] >= 0
     assert _FULL_TO_BT601_Y_LUT[255] <= 255
+
+def test_ffmpeg_nvdec_build_cmd(monkeypatch):
+    # Mock metadata probe
+    monkeypatch.setattr("src.decoder.nvdec_decoder.probe_video_metadata", lambda p: {
+        "codec": "hevc", "width": 2960, "height": 1664, "fps": 25.0, "total_frames": 100
+    })
+    crop_rect = {"x_min": 300, "y_min": 600, "x_max": 2600, "y_max": 1664}
+    dec = FFmpegNVDECDecoder("fake.mp4", crop_rect=crop_rect)
+
+    # 1. Cuvid with hardware -crop
+    cmd_cuvid_crop = dec._build_cmd(use_cuvid=True, use_hw_crop=True)
+    assert "-c:v" in cmd_cuvid_crop
+    assert "hevc_cuvid" in cmd_cuvid_crop
+    assert "-crop" in cmd_cuvid_crop
+    crop_idx = cmd_cuvid_crop.index("-crop")
+    assert cmd_cuvid_crop[crop_idx + 1] == "600x0x300x360"
+
+    # 2. CUDA hwaccel + hwdownload + crop
+    cmd_cuda = dec._build_cmd(use_cuvid=False, use_hw_crop=False)
+    assert "-hwaccel" in cmd_cuda
+    assert "cuda" in cmd_cuda
+    assert "crop=2300:1064:300:600" in "".join(cmd_cuda)
+
+    # 3. Cuvid fallback with software crop filter
+    cmd_cuvid_vf = dec._build_cmd(use_cuvid=True, use_hw_crop=False)
+    assert "-c:v" in cmd_cuvid_vf
+    assert "-crop" not in cmd_cuvid_vf
+    assert "crop=2300:1064:300:600" in "".join(cmd_cuvid_vf)
+

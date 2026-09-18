@@ -25,6 +25,11 @@ class StageTimer:
             self.calls += 1
             return elapsed
 
+    def add_duration(self, elapsed: float, calls: int = 1):
+        with self._lock:
+            self.total_seconds += elapsed
+            self.calls += calls
+
 class PipelineProfiler:
     def __init__(self):
         self.stages: Dict[str, StageTimer] = {
@@ -34,6 +39,9 @@ class PipelineProfiler:
             'frame_conversion': StageTimer(),
             'motion_gate': StageTimer(),
             'vehicle_detection': StageTimer(),
+            'vehicle_preprocess': StageTimer(),
+            'vehicle_inference': StageTimer(),
+            'vehicle_postprocess': StageTimer(),
             'tracking': StageTimer(),
             'crossing_fsm': StageTimer(),
             'plate_detection': StageTimer(),
@@ -87,6 +95,10 @@ class PipelineProfiler:
                 self.yolo_latencies.append(elapsed * 1000.0)
             return elapsed
         return 0.0
+
+    def record_stage_time(self, stage_name: str, elapsed: float, calls: int = 1):
+        if stage_name in self.stages:
+            self.stages[stage_name].add_duration(elapsed, calls=calls)
 
     def get_yolo_block_latencies(self, block_size: int = 200) -> list:
         """Returns inference latency statistics grouped in temporal blocks (thermal tracking)."""
