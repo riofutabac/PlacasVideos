@@ -109,6 +109,48 @@ def vote_plate_characters(
 
     return consensus_text, consensus_conf, best_cand['crop'], best_cand['timestamp'], best_cand['det_conf']
 
+def try_two_tier_ocr(
+    alpr: ALPR,
+    plate_crop: np.ndarray
+) -> Optional[Tuple[str, List[float], float]]:
+    """
+    Attempts two-tier (two-row) OCR for motorcycle or square-format plates.
+    Splits the crop into overlapping top and bottom halves, runs OCR on each,
+    and combines results if both rows produce plausible plate tokens.
+    """
+    if plate_crop is None or plate_crop.size == 0:
+        return None
+    h, w = plate_crop.shape[:2]
+    aspect = w / max(1, h)
+    if aspect > 1.35 or h < 24 or w < 24:
+        return None
+
+    try:
+        # Overlapping split: top 55% and bottom 58%
+        top_crop = plate_crop[0 : int(h * 0.55), :]
+        bot_crop = plate_crop[int(h * 0.42) : h, :]
+
+        top_res = alpr.ocr.predict(top_crop)
+        bot_res = alpr.ocr.predict(bot_crop)
+
+        if not top_res or not bot_res or not top_res.text or not bot_res.text:
+            return None
+
+        top_txt = "".join(c for c in top_res.text.strip().upper() if c.isalnum())
+        bot_txt = "".join(c for c in bot_res.text.strip().upper() if c.isalnum())
+
+        if len(top_txt) >= 2 and len(bot_txt) >= 3:
+            combined_text = top_txt + bot_txt
+            top_confs = top_res.confidence if top_res.confidence else [0.5] * len(top_txt)
+            bot_confs = bot_res.confidence if bot_res.confidence else [0.5] * len(bot_txt)
+            combined_confs = list(top_confs) + list(bot_confs)
+            avg_conf = float(np.mean(combined_confs)) if combined_confs else 0.5
+            return combined_text, combined_confs, avg_conf
+    except Exception:
+        pass
+
+    return None
+
 class PlateProcessor:
     def __init__(
         self,
@@ -196,6 +238,20 @@ class PlateProcessor:
                             'char_confs': confs,
                             'det_conf': item['det_conf'],
                             'plate_score': item['score'],
+                            'crop': item['crop'],
+                            'timestamp': item['timestamp']
+                        })
+
+                    # Step 4: Two-tier OCR attempt for near-square / motorcycle plates
+                    two_tier = try_two_tier_ocr(self.alpr, item['crop'])
+                    if two_tier is not None:
+                        tt_text, tt_confs, tt_avg = two_tier
+                        scored_ocr.append({
+                            'text': tt_text,
+                            'ocr_conf': tt_avg,
+                            'char_confs': tt_confs,
+                            'det_conf': item['det_conf'],
+                            'plate_score': item['score'] * 1.1,
                             'crop': item['crop'],
                             'timestamp': item['timestamp']
                         })

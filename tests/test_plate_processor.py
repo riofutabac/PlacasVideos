@@ -6,7 +6,7 @@ import pytest
 from src.pipeline_types import VehicleFrameCandidate
 from src.quality_ranker import QualityRanker
 from src.timer_profiler import PipelineProfiler
-from src.plate_processor import PlateProcessor, vote_plate_characters
+from src.plate_processor import PlateProcessor, vote_plate_characters, try_two_tier_ocr
 
 @pytest.fixture
 def processor(tmp_path):
@@ -172,3 +172,64 @@ def test_vote_plate_characters_prior_ecuador():
     }
     text, conf, crop, ts, det_conf = vote_plate_characters([c_inv, c_val])
     assert text == "PCW2492"
+
+def test_try_two_tier_ocr_aspect_filter():
+    mock_alpr = MagicMock()
+    # Wide car plate (80x40 -> aspect 2.0 > 1.35)
+    wide_crop = np.zeros((40, 80, 3), dtype=np.uint8)
+    assert try_two_tier_ocr(mock_alpr, wide_crop) is None
+    assert mock_alpr.ocr.predict.call_count == 0
+
+    # Tiny crop (h < 24)
+    tiny_crop = np.zeros((20, 20, 3), dtype=np.uint8)
+    assert try_two_tier_ocr(mock_alpr, tiny_crop) is None
+
+def test_try_two_tier_ocr_motorcycle_split():
+    mock_alpr = MagicMock()
+    class DummyRes:
+        def __init__(self, text, conf):
+            self.text = text
+            self.confidence = [conf] * len(text)
+
+    mock_alpr.ocr.predict.side_effect = [
+        DummyRes("JU", 0.95),      # top crop
+        DummyRes("436A", 0.90)     # bottom crop
+    ]
+
+    # Square motorcycle plate (50x50 -> aspect 1.0)
+    moto_crop = np.zeros((50, 50, 3), dtype=np.uint8)
+    res = try_two_tier_ocr(mock_alpr, moto_crop)
+
+    assert res is not None
+    text, confs, avg_conf = res
+    assert text == "JU436A"
+    assert len(confs) == 6
+    assert avg_conf > 0.90
+
+def test_recognize_plate_candidates_with_motorcycle(processor):
+    class DummyRes:
+        def __init__(self, text, conf):
+            self.text = text
+            self.confidence = [conf] * len(text)
+
+    # When full crop is run: it only sees "JU" (conf 0.70)
+    # When top crop is run: sees "JU" (conf 0.92)
+    # When bottom crop is run: sees "436A" (conf 0.88)
+    processor.alpr.ocr.predict.side_effect = [
+        DummyRes("JU", 0.70),    # Full crop
+        DummyRes("JU", 0.92),    # Top crop (two-tier)
+        DummyRes("436A", 0.88),  # Bottom crop (two-tier)
+    ]
+
+    moto_crop = np.zeros((50, 50, 3), dtype=np.uint8)
+    candidates = [{
+        "crop": moto_crop,
+        "det_conf": 0.85,
+        "score": 0.80,
+        "timestamp": 25.0
+    }]
+
+    plate_raw, plate_crop, plate_conf, ocr_conf, best_plate_ts, ocr_votes = processor.recognize_plate_candidates(candidates)
+    assert plate_raw == "JU436A"
+    assert ocr_conf > 0.85
+    assert best_plate_ts == 25.0
