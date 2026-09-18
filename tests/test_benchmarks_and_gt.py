@@ -10,7 +10,6 @@ from benchmarks.benchmark_ocr_offline import (
     apply_letterbox_resize,
     extract_plate_with_margin,
     logprob_fusion,
-    load_evaluation_dataset,
     run_ocr_matrix_benchmark
 )
 from benchmarks.benchmark_plate_detector import load_vehicle_crops, benchmark_detectors
@@ -125,33 +124,26 @@ def test_logprob_fusion():
     assert conf > 0.0
 
 
-def test_load_evaluation_dataset(tmp_path):
-    gt_file = tmp_path / "gt.json"
-    gt_data = [
-        {"ground_truth_id": "GT_1", "plate_text": "PCW2492", "plate_legible": True, "province": "Pichincha"},
-        {"ground_truth_id": "GT_2", "plate_text": "UNKNOWN", "plate_legible": False, "province": "Desconocida"}
-    ]
-    with open(gt_file, "w", encoding="utf-8") as f:
-        json.dump(gt_data, f)
+def test_load_real_event_crops():
+    from benchmarks.benchmark_ocr_offline import load_real_event_crops
+    crops = load_real_event_crops("evidence/plates/debug")
+    assert len(crops) > 0
+    for evt_id, paths in crops.items():
+        assert evt_id.startswith("EVT_")
+        assert len(paths) > 0
 
-    ds = load_evaluation_dataset(str(tmp_path / "nonexistent.json"), str(gt_file))
-    assert len(ds) == 1
-    assert ds[0]["ground_truth_plate"] == "PCW2492"
+def test_map_events_to_ground_truth():
+    from benchmarks.benchmark_ocr_offline import map_events_to_ground_truth
+    evt_ids = ["EVT_(60)_0023_27", "EVT_(61)_0018_80"]
+    mapping = map_events_to_ground_truth(evt_ids, "benchmarks/ground_truth.json")
+    assert "EVT_(60)_0023_27" in mapping
+    assert mapping["EVT_(60)_0023_27"]["plate_text"] == "PCW2492"
 
-
-def test_run_ocr_matrix_benchmark_quick(tmp_path):
-    gt_file = tmp_path / "gt.json"
-    gt_data = [
-        {"ground_truth_id": "GT_1", "plate_text": "PCW2492", "plate_legible": True, "province": "Pichincha"},
-        {"ground_truth_id": "GT_2", "plate_text": "TAA2204", "plate_legible": True, "province": "Tungurahua"}
-    ]
-    with open(gt_file, "w", encoding="utf-8") as f:
-        json.dump(gt_data, f)
-
+def test_run_ocr_matrix_benchmark_quick(tmp_path, monkeypatch):
     out_csv = str(tmp_path / "results.csv")
     results = run_ocr_matrix_benchmark(
-        dataset_path=str(tmp_path / "nonexistent.json"),
-        gt_path=str(gt_file),
+        debug_dir="evidence/plates/debug",
+        gt_path="benchmarks/ground_truth.json",
         output_csv=out_csv,
         quick_mode=True
     )

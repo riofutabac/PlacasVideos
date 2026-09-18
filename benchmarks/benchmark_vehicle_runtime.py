@@ -90,26 +90,27 @@ def benchmark_runtime(
     post_times = []
     total_times = []
 
+    if runtime_key in ("ort_iobinding", "ort_trt", "trt_engine") and not has_cuda:
+        print(f"  ⚠️ {runtime_label}: Requiere GPU NVIDIA con CUDA/TensorRT. No medido en host CPU.")
+        return {
+            "runtime": runtime_key,
+            "label": runtime_label,
+            "status": "REQUIRES_CUDA_GPU",
+            "preprocess_ms": None,
+            "inference_ms": None,
+            "postprocess_ms": None,
+            "total_p50_ms": None,
+            "total_p95_ms": None,
+            "fps_equivalent": None,
+            "speedup_vs_baseline": None
+        }
+
     for frame in frames:
-        t0 = time.perf_counter()
-        if runner and has_cuda:
-            _, _, _, timing = runner.predict(frame, imgsz=imgsz)
-            p_ms = timing.get('preprocess', 0.0) * 1000.0
-            i_ms = timing.get('inference', 0.0) * 1000.0
-            o_ms = timing.get('postprocess', 0.0) * 1000.0
-            tot_ms = timing.get('total', 0.0) * 1000.0
-        else:
-            # Calibrated latencies based on T4 benchmarks (v1.9 vs I/O Binding vs TRT)
-            time.sleep(0.003)
-            if runtime_key == "ultralytics":
-                p_ms, i_ms, o_ms = 1.4, 22.5, 0.9
-            elif runtime_key == "ort_iobinding":
-                p_ms, i_ms, o_ms = 0.8, 14.2, 0.8
-            elif runtime_key == "ort_trt":
-                p_ms, i_ms, o_ms = 0.8, 8.5, 0.7
-            else:  # trt_engine
-                p_ms, i_ms, o_ms = 0.6, 6.8, 0.5
-            tot_ms = p_ms + i_ms + o_ms
+        _, _, _, timing = runner.predict(frame, imgsz=imgsz)
+        p_ms = timing.get('preprocess', 0.0) * 1000.0
+        i_ms = timing.get('inference', 0.0) * 1000.0
+        o_ms = timing.get('postprocess', 0.0) * 1000.0
+        tot_ms = timing.get('total', 0.0) * 1000.0
 
         prep_times.append(p_ms)
         inf_times.append(i_ms)
@@ -126,6 +127,7 @@ def benchmark_runtime(
     return {
         "runtime": runtime_key,
         "label": runtime_label,
+        "status": "MEASURED",
         "preprocess_ms": round(avg_prep, 2),
         "inference_ms": round(avg_inf, 2),
         "postprocess_ms": round(avg_post, 2),
@@ -153,15 +155,25 @@ def run_vehicle_runtime_benchmark(
     base_p50 = None
     for r_key, r_label in RUNTIMES:
         res = benchmark_runtime(r_key, r_label, resolved_model, frames, imgsz=imgsz)
-        if base_p50 is None:
+        if res.get("status") == "REQUIRES_CUDA_GPU":
+            results.append(res)
+            continue
+        if base_p50 is None and res.get("total_p50_ms"):
             base_p50 = res["total_p50_ms"]
-        res["speedup_vs_baseline"] = round(base_p50 / res["total_p50_ms"], 2) if res["total_p50_ms"] > 0 else 1.0
+        if base_p50 and res.get("total_p50_ms"):
+            res["speedup_vs_baseline"] = round(base_p50 / res["total_p50_ms"], 2)
+        else:
+            res["speedup_vs_baseline"] = 1.0
         results.append(res)
 
     # Save to CSV
     os.makedirs(os.path.dirname(output_csv), exist_ok=True)
+    fieldnames = [
+        "runtime", "label", "status", "preprocess_ms", "inference_ms",
+        "postprocess_ms", "total_p50_ms", "total_p95_ms", "fps_equivalent", "speedup_vs_baseline"
+    ]
     with open(output_csv, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(results[0].keys()))
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(results)
     print(f"📁 Resultados guardados en {output_csv}")
@@ -171,7 +183,10 @@ def run_vehicle_runtime_benchmark(
     print(f"{'Backend / Runtime':<35} | {'Pre (ms)':<8} | {'Inf (ms)':<8} | {'Post (ms)':<9} | {'p50 (ms)':<8} | {'FPS':<6} | {'Speedup'}")
     print("-" * 90)
     for r in results:
-        print(f"{r['label']:<35} | {r['preprocess_ms']:<8.2f} | {r['inference_ms']:<8.2f} | {r['postprocess_ms']:<9.2f} | {r['total_p50_ms']:<8.2f} | {r['fps_equivalent']:<6.1f} | {r['speedup_vs_baseline']}x")
+        if r.get("status") == "REQUIRES_CUDA_GPU":
+            print(f"{r['label']:<35} | {'[Requiere GPU CUDA/TensorRT - No medido en CPU]':<50}")
+        else:
+            print(f"{r['label']:<35} | {r['preprocess_ms']:<8.2f} | {r['inference_ms']:<8.2f} | {r['postprocess_ms']:<9.2f} | {r['total_p50_ms']:<8.2f} | {r['fps_equivalent']:<6.1f} | {r['speedup_vs_baseline']}x")
     print("=" * 90 + "\n")
 
     return results

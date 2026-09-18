@@ -67,11 +67,9 @@ def benchmark_detectors(manifest_path: str = "evidence/plates/manifest.json"):
             from open_image_models import LicensePlateDetector
             providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if sys.platform != 'darwin' else ['CPUExecutionProvider']
             detector = LicensePlateDetector(detection_model=model_name, conf_thresh=0.20, providers=providers)
-            use_mock = False
         except Exception as e:
-            print(f"  ℹ️ Inicialización en modo simulación/dry-run ({e})")
-            detector = None
-            use_mock = True
+            print(f"  ❌ No se pudo cargar {model_name}: {e}")
+            continue
 
         latencies = []
         detections_count = 0
@@ -79,21 +77,14 @@ def benchmark_detectors(manifest_path: str = "evidence/plates/manifest.json"):
 
         for crop in vehicle_crops:
             t0 = time.perf_counter()
-            if not use_mock and detector:
-                dets = detector.predict(crop)
-            else:
-                # Simulated latency: t-512 (~15ms), s-608 (~28ms on CPU, 6ms vs 11ms on GPU)
-                sim_lat = 0.015 if "t-512" in model_name else 0.028
-                time.sleep(sim_lat * 0.05)
-                dets = [{"confidence": 0.92 if "t-512" in model_name else 0.96}]
-
+            dets = detector.predict(crop)
             t1 = time.perf_counter()
             latencies.append((t1 - t0) * 1000.0)
 
             if dets:
                 detections_count += 1
                 for d in dets:
-                    conf = getattr(d, 'confidence', d.get('confidence', 0.5) if isinstance(d, dict) else 0.5)
+                    conf = getattr(d, 'confidence', d.get('confidence', 0.0) if isinstance(d, dict) else 0.0)
                     confidences.append(float(conf))
 
         recall_pct = (detections_count / len(vehicle_crops) * 100.0) if vehicle_crops else 0.0
