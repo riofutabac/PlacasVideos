@@ -1,6 +1,6 @@
 # Dependencias Core del Pipeline ALPR Ligero Orientado a Eventos
 torch>=2.0.0
-ultralytics>=8.0.0
+ultralytics>=8.4.0
 fast_alpr>=0.1.0
 supervision>=0.20.0
 openpyxl>=3.1.0

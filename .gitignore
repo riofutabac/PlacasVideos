@@ -32,6 +32,7 @@ reports/*.xlsx
 *.pt
 *.onnx
 !yolov8n.onnx
+!yolo26n.onnx
 
 # Temporary / OS / local files
 .DS_Store

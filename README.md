@@ -24,12 +24,14 @@ Diseñado con una **arquitectura basada en eventos** para procesar horas continu
 PlacasVideos/
 ├── GoogleColab_ALPR_Pipeline.ipynb  # Notebook listo para ejecutar en Google Colab con GPU T4
 ├── main.py                          # Punto de entrada para ejecución por lotes
-├── requirements.txt                 # Dependencias Python
+├── requirements.txt                 # Dependencias Python (ultralytics>=8.4.0, etc.)
+├── yolov8n.onnx                     # Modelo ONNX calibrado para GPU NVIDIA
 ├── config/
 │   └── camera_config.yaml           # Calibración de ROI, zonas de cruce y umbrales de tracking
 ├── src/
 │   ├── pipeline_runner.py           # Orquestador del pipeline, decodificación y scheduling
-│   ├── motion_gate.py               # Compuerta de movimiento de 3 estados
+│   ├── video_decoder.py             # Decodificador desacoplado con backends NVDEC y OpenCV
+│   ├── motion_gate.py               # Compuerta de movimiento adaptativa (Luma 0.01ms)
 │   ├── crossing_logic.py            # Lógica de detección de sentido (ENTRADA / SALIDA)
 │   ├── quality_ranker.py            # Selección de mejores cuadros por brillo/nitidez/área
 │   ├── ecuador_plate_validator.py   # Validación y corrección de sintaxis de placas
@@ -37,8 +39,15 @@ PlacasVideos/
 │   ├── db_manager.py                # Persistencia relacional en SQLite y telemetría
 │   ├── excel_exporter.py            # Generador del reporte de auditoría con fotos incrustadas
 │   └── timer_profiler.py            # Profiling preciso por etapas del pipeline
-├── tools/
-│   └── calibrate_roi.py             # Herramienta visual interactiva para ajustar ROIs
+├── benchmarks/
+│   ├── ground_truth.json            # Ground truth auditado de referencia (8/8 eventos)
+│   ├── baseline_yolov8n.json        # Métricas canónicas de referencia YOLOv8n
+│   ├── baseline_yolo26n.json        # Métricas canónicas de referencia YOLO26n
+│   ├── evaluate_pipeline.py         # Evaluación automática contra ground_truth.json
+│   ├── cross_validate_audit.py      # Cruce automático contra 'Revisión bypass Pintag.xlsx'
+│   ├── resumen_ejecutivo.py         # Reporte ejecutivo de tiempos, FPS y costos
+│   ├── benchmark_yolo_comparison.py # Comparativa A/B YOLOv8 vs YOLO26 (GPU/CPU)
+│   └── debug/                       # Scripts auxiliares de depuración
 ├── data/                            # Directorio de SQLite (data/events.sqlite)
 ├── evidence/                        # Almacén de evidencias fotográficas
 │   ├── vehicles/                    # Fotos completas de los vehículos
@@ -48,20 +57,18 @@ PlacasVideos/
 
 ---
 
-## 🚀 Ejecución en Google Colab (Aceleración GPU Gratuita)
-
-Si no cuentas con GPU local o tu servidor tiene restricciones de espacio, puedes procesar tus videos a máxima velocidad (> 8× – 12× realtime) usando Google Colab:
+## 🚀 Ejecución en Google Colab (Aceleración GPU)
 
 1. Abre [Google Colab](https://colab.research.google.com/).
 2. Sube o abre el cuaderno [`GoogleColab_ALPR_Pipeline.ipynb`](file:///Users/desarrollopashq/Documents/GitHub/TestNuevoPlacas/GoogleColab_ALPR_Pipeline.ipynb).
 3. Selecciona el entorno de ejecución con GPU:
    - **Entorno de ejecución** $\rightarrow$ **Cambiar tipo de entorno de ejecución** $\rightarrow$ **T4 GPU**.
-4. Sube tus videos `.mp4` en el panel de archivos o conéctalos desde tu Google Drive.
-5. Ejecuta las celdas en orden. Al finalizar, el notebook descargará automáticamente el reporte `reporte_auditoria.xlsx` con todas las fotos de las placas detectadas.
+4. Conecta tu Google Drive o coloca los videos `.mp4` en el entorno.
+5. Ejecuta las celdas en orden. El pipeline procesa por lotes a **>6.4× Tiempo Real**.
 
 ---
 
-## 💻 Instalación y Ejecución Local
+## 💻 Instalación y Ejecución Local / Servidor
 
 ### 1. Clonar el repositorio
 ```bash
@@ -81,16 +88,39 @@ source .venv/bin/activate  # En Linux/macOS
 pip install -r requirements.txt
 ```
 
-### 4. Ejecutar el pipeline
-Coloca tus videos `.mp4` en la raíz del proyecto y corre:
+### 4. Opciones de Ejecución (`main.py`)
 ```bash
+# Ejecutar con configuración por defecto (procesa videos en la raíz o en Drive):
 python main.py
+
+# Procesar una carpeta específica:
+python main.py /ruta/a/videos/
+
+# Procesar solo clips específicos (ej. clips 60 y 61):
+python main.py /ruta/a/videos/ --clips 60 61
+
+# Seleccionar modelo detector de vehículos:
+python main.py --model yolov8n.onnx   # Recomendado para GPUs NVIDIA (6.07 ms)
+python main.py --model yolo26n.onnx   # Recomendado para Servidores CPU (32% más rápido en CPU)
+
+# Forzar decodificador:
+python main.py --decoder nvdec    # GPU hardware decode
+python main.py --decoder opencv   # CPU fallback
 ```
 
-Al terminar, encontrarás:
-- **Base de datos:** `data/events.sqlite`
-- **Fotos de evidencia:** `evidence/vehicles/` y `evidence/plates/`
-- **Reporte de auditoría:** `reports/reporte_auditoria.xlsx`
+---
+
+## 🤖 Selección de Modelos: YOLOv8 vs YOLO26
+
+El pipeline soporta arquitecturas modernas de visión por computador según el hardware de despliegue:
+
+| Característica | `yolov8n.onnx` (Recomendado GPU) | `yolo26n.onnx` (Recomendado CPU) |
+| :--- | :---: | :---: |
+| **Latencia en GPU NVIDIA T4** | **6.07 ms** (164.7 FPS) 🏆 | 6.81 ms (146.9 FPS) |
+| **Latencia en CPU Intel Xeon** | 22.59 ms (44.3 FPS) | **15.34 ms** (65.2 FPS) 🏆 (+32%) |
+| **Exactitud en cruce de placas** | **100% (6/6 legibles)** 🏆 | 33.3% (vibración de caja) |
+| **Dirección de cruce** | **100% (8/8)** 🏆 | 87.5% (7/8) |
+| **Tamaño de archivo** | 12.4 MB | **9.6 MB** 🏆 |
 
 ---
 
@@ -100,4 +130,5 @@ En pruebas sobre los videos de referencia (`*(60).mp4` y `*(61).mp4`):
 - **Recall de Eventos:** **100% (8/8 vehículos detectados)**
 - **Precisión de Dirección (`ENTRADA` / `SALIDA`):** **100%**
 - **Falsos Positivos de Evento:** **0**
-- **Deduplicación:** 100% de coherencia en agrupaciones de cruce continuo.
+- **Velocidad Sostenida:** **>6.4× Tiempo Real (160 FPS equivalentes)**
+- **Costo Cloud:** Menos de **$0.06 USD por hora de video analizada** en GPU T4.
