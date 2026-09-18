@@ -15,6 +15,49 @@ import cv2
 
 logger = logging.getLogger("alpr.vehicle_runtime")
 
+
+def _nms(boxes: np.ndarray, scores: np.ndarray, iou_threshold: float = 0.45) -> List[int]:
+    """Greedy IoU-based Non-Maximum Suppression.
+
+    Args:
+        boxes: (N, 4) array of [x1, y1, x2, y2].
+        scores: (N,) array of confidences.
+        iou_threshold: boxes with IoU above this are suppressed.
+
+    Returns:
+        List of indices (into `boxes`/`scores`) to keep, sorted by score desc.
+    """
+    if boxes.shape[0] == 0:
+        return []
+
+    x1, y1, x2, y2 = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
+    areas = np.maximum(0.0, x2 - x1) * np.maximum(0.0, y2 - y1)
+    order = scores.argsort()[::-1]
+
+    keep: List[int] = []
+    while order.size > 0:
+        i = order[0]
+        keep.append(int(i))
+        rest = order[1:]
+        if rest.size == 0:
+            break
+
+        xx1 = np.maximum(x1[i], x1[rest])
+        yy1 = np.maximum(y1[i], y1[rest])
+        xx2 = np.minimum(x2[i], x2[rest])
+        yy2 = np.minimum(y2[i], y2[rest])
+
+        inter_w = np.maximum(0.0, xx2 - xx1)
+        inter_h = np.maximum(0.0, yy2 - yy1)
+        inter = inter_w * inter_h
+        union = areas[i] + areas[rest] - inter
+        iou = np.where(union > 0, inter / union, 0.0)
+
+        order = rest[iou <= iou_threshold]
+
+    return keep
+
+
 class VehicleDetectorRunner:
     """Encapsulates vehicle detection runtime execution and performance profiling."""
     def __init__(
@@ -142,14 +185,17 @@ class VehicleDetectorRunner:
         # Branch B: ONNX Runtime I/O Binding
         if self.ort_session is not None:
             t0 = time.perf_counter()
-            # Preprocessing (Resize & Normalization)
+            # Preprocessing (BGR->RGB, letterbox resize, normalize, NCHW)
             h0, w0 = crop_roi.shape[:2]
             scale = min(imgsz / w0, imgsz / h0)
             nw, nh = int(w0 * scale), int(h0 * scale)
-            resized = cv2.resize(crop_roi, (nw, nh), interpolation=cv2.INTER_LINEAR)
+            rgb = cv2.cvtColor(crop_roi, cv2.COLOR_BGR2RGB)
+            resized = cv2.resize(rgb, (nw, nh), interpolation=cv2.INTER_LINEAR)
             pad_img = np.full((imgsz, imgsz, 3), 114, dtype=np.uint8)
             pad_img[:nh, :nw] = resized
-            blob = (pad_img.transpose(2, 0, 1).astype(np.float32) / 255.0)[None, ...]
+            blob = np.ascontiguousarray(
+                (pad_img.transpose(2, 0, 1).astype(np.float32) / 255.0)[None, ...]
+            )
 
             t_prep = time.perf_counter() - t0
             t1 = time.perf_counter()
@@ -168,20 +214,22 @@ class VehicleDetectorRunner:
                     buffer_ptr=t_cuda.data_ptr()
                 )
                 output_name = self.ort_session.get_outputs()[0].name
-                self.io_binding.bind_output(output_name, 'cuda')
+                self.io_binding.bind_output(output_name, device_type='cuda', device_id=0)
                 self.ort_session.run_with_iobinding(self.io_binding)
-                outputs = [out.numpy() for out in self.io_binding.copy_outputs_to_cpu()]
+                # copy_outputs_to_cpu() already returns numpy arrays (unlike
+                # get_outputs(), which returns OrtValue objects needing .numpy()).
+                outputs = self.io_binding.copy_outputs_to_cpu()
             else:
                 outputs = self.ort_session.run(None, {input_name: blob})
 
             t_inf = time.perf_counter() - t1
             t2 = time.perf_counter()
 
-            # Post-processing (NMS / Output decoding)
+            # Post-processing: decode YOLOv8 output, filter, NMS, rescale to crop coords
             out = outputs[0]  # shape (1, 84, N) or (1, N, 84)
             if out.shape[1] < out.shape[2]:
                 out = out.transpose(0, 2, 1)
-            preds = out[0]  # shape (N, 84)
+            preds = out[0]  # shape (N, 84): [cx, cy, w, h, cls0..cls79]
 
             boxes, confs, cls_ids = [], [], []
             boxes_raw = preds[:, :4]
@@ -195,17 +243,24 @@ class VehicleDetectorRunner:
                 filt_scores = max_scores[mask]
                 filt_cls = max_cls[mask]
 
-                # Convert cx, cy, w, h to xyxy on original image
-                for b, s, c in zip(filt_boxes, filt_scores, filt_cls):
-                    if int(c) in classes:
-                        cx, cy, w, h = b
-                        x1 = max(0.0, (cx - w / 2.0) / scale)
-                        y1 = max(0.0, (cy - h / 2.0) / scale)
-                        x2 = min(float(w0), (cx + w / 2.0) / scale)
-                        y2 = min(float(h0), (cy + h / 2.0) / scale)
-                        boxes.append([x1, y1, x2, y2])
-                        confs.append(float(s))
-                        cls_ids.append(int(c))
+                class_mask = np.isin(filt_cls, list(classes))
+                filt_boxes = filt_boxes[class_mask]
+                filt_scores = filt_scores[class_mask]
+                filt_cls = filt_cls[class_mask]
+
+                if filt_boxes.shape[0] > 0:
+                    # Convert cx, cy, w, h (letterboxed) to xyxy in original crop coords
+                    cx, cy, w, h = filt_boxes[:, 0], filt_boxes[:, 1], filt_boxes[:, 2], filt_boxes[:, 3]
+                    x1 = np.clip((cx - w / 2.0) / scale, 0.0, float(w0))
+                    y1 = np.clip((cy - h / 2.0) / scale, 0.0, float(h0))
+                    x2 = np.clip((cx + w / 2.0) / scale, 0.0, float(w0))
+                    y2 = np.clip((cy + h / 2.0) / scale, 0.0, float(h0))
+                    xyxy = np.stack([x1, y1, x2, y2], axis=1)
+
+                    keep = _nms(xyxy, filt_scores, iou_threshold=0.45)
+                    boxes = xyxy[keep].tolist()
+                    confs = filt_scores[keep].astype(float).tolist()
+                    cls_ids = filt_cls[keep].astype(int).tolist()
 
             t_post = time.perf_counter() - t2
             total_s = time.perf_counter() - t_start

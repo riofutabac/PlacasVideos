@@ -55,7 +55,8 @@ def benchmark_runtime(
     model_name: str,
     frames: List[np.ndarray],
     imgsz: int = 416,
-    warmup_iters: int = 5
+    warmup_iters: int = 5,
+    runner_cache: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     print(f"⏱️ Probando backend: {runtime_label}...")
 
@@ -64,18 +65,29 @@ def benchmark_runtime(
     has_cuda = torch.cuda.is_available()
     device = "cuda" if has_cuda else "cpu"
 
-    # Instantiate runner
-    actual_runtime = "ultralytics" if runtime_key in ("ort_trt", "trt_engine") and not has_cuda else runtime_key
-    try:
-        runner = VehicleDetectorRunner(
-            model_name=model_name,
-            runtime="ultralytics" if runtime_key not in ("ultralytics", "ort_iobinding") else runtime_key,
-            imgsz=imgsz,
-            device=device
-        )
-    except Exception as e:
-        print(f"  ℹ️ Inicialización en modo simulación ({e})")
-        runner = None
+    # `ort_trt` and `trt_engine` rows currently have no dedicated runtime
+    # implementation, so they both degrade to the same "ultralytics" runner
+    # as the baseline. Reuse a single cached instance for that runtime so the
+    # underlying model is loaded once instead of once per benchmark row.
+    effective_runtime = runtime_key if runtime_key in ("ultralytics", "ort_iobinding") else "ultralytics"
+    cache_key = (effective_runtime, model_name, device)
+
+    runner = None
+    if runner_cache is not None and cache_key in runner_cache:
+        runner = runner_cache[cache_key]
+    else:
+        try:
+            runner = VehicleDetectorRunner(
+                model_name=model_name,
+                runtime=effective_runtime,
+                imgsz=imgsz,
+                device=device
+            )
+        except Exception as e:
+            print(f"  ℹ️ Inicialización en modo simulación ({e})")
+            runner = None
+        if runner_cache is not None:
+            runner_cache[cache_key] = runner
 
     # Warmup
     for i in range(min(warmup_iters, len(frames))):
@@ -153,8 +165,9 @@ def run_vehicle_runtime_benchmark(
 
     results = []
     base_p50 = None
+    runner_cache: Dict[str, Any] = {}
     for r_key, r_label in RUNTIMES:
-        res = benchmark_runtime(r_key, r_label, resolved_model, frames, imgsz=imgsz)
+        res = benchmark_runtime(r_key, r_label, resolved_model, frames, imgsz=imgsz, runner_cache=runner_cache)
         if res.get("status") == "REQUIRES_CUDA_GPU":
             results.append(res)
             continue
