@@ -74,6 +74,7 @@ models:
 
 quality_ranking:
   top_m_vehicle_frames: 8
+  min_frame_separation_seconds: 0.0   # 0.0 = comportamiento actual (sin filtro de diversidad)
   top_k_plate_crops: 7
   save_candidate_manifest: false
   weights_vehicle:

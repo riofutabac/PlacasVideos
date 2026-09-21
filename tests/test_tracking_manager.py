@@ -187,3 +187,42 @@ def test_post_crossing_window_delays_emission_and_accumulates_better_frames():
     # Frames were accumulated throughout all 5 steps
     assert len(emitted_5[0].best_vehicle_frames) == 5
 
+def test_insert_vehicle_candidate_diversity():
+    from src.tracking_manager import insert_vehicle_candidate
+    from src.pipeline_types import VehicleFrameCandidate
+
+    candidates = []
+    dummy_crop = np.zeros((10, 10, 3), dtype=np.uint8)
+
+    # 1. Insert first frame at t=1.00 with score=0.80
+    c1 = VehicleFrameCandidate(score=0.80, timestamp=1.00, vehicle_crop=dummy_crop, bbox_in_full_frame=(0, 0, 10, 10))
+    assert insert_vehicle_candidate(candidates, c1, top_m=3, min_separation=0.3) is True
+    assert len(candidates) == 1
+    assert candidates[0].score == 0.80
+
+    # 2. Frame at t=1.10 (too close: diff=0.10 < 0.30) with lower score=0.75 -> rejected
+    c2 = VehicleFrameCandidate(score=0.75, timestamp=1.10, vehicle_crop=dummy_crop, bbox_in_full_frame=(0, 0, 10, 10))
+    assert insert_vehicle_candidate(candidates, c2, top_m=3, min_separation=0.3) is False
+    assert len(candidates) == 1
+    assert candidates[0].score == 0.80
+
+    # 3. Frame at t=1.15 (too close: diff=0.15 < 0.30) with HIGHER score=0.90 -> replaces c1!
+    c3 = VehicleFrameCandidate(score=0.90, timestamp=1.15, vehicle_crop=dummy_crop, bbox_in_full_frame=(0, 0, 10, 10))
+    assert insert_vehicle_candidate(candidates, c3, top_m=3, min_separation=0.3) is True
+    assert len(candidates) == 1
+    assert candidates[0].score == 0.90
+    assert candidates[0].timestamp == 1.15
+
+    # 4. Frame at t=1.50 (diff=0.35 >= 0.30) -> accepted into empty slot
+    c4 = VehicleFrameCandidate(score=0.70, timestamp=1.50, vehicle_crop=dummy_crop, bbox_in_full_frame=(0, 0, 10, 10))
+    assert insert_vehicle_candidate(candidates, c4, top_m=3, min_separation=0.3) is True
+    assert len(candidates) == 2
+
+    # 5. Frame at t=1.90 (diff=0.40 >= 0.30) -> accepted into last slot
+    c5 = VehicleFrameCandidate(score=0.85, timestamp=1.90, vehicle_crop=dummy_crop, bbox_in_full_frame=(0, 0, 10, 10))
+    assert insert_vehicle_candidate(candidates, c5, top_m=3, min_separation=0.3) is True
+    assert len(candidates) == 3
+    # Sorted order
+    assert [c.score for c in candidates] == [0.90, 0.85, 0.70]
+
+

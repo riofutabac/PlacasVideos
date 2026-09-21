@@ -58,6 +58,41 @@ def stitch_or_create_track(
     return state
 
 
+def insert_vehicle_candidate(
+    candidates: List[VehicleFrameCandidate],
+    cand: VehicleFrameCandidate,
+    top_m: int,
+    min_separation: float = 0.0
+) -> bool:
+    """
+    Inserts candidate into top-M list enforcing temporal diversity if min_separation > 0.
+    Returns True if candidate was added or replaced an existing candidate.
+    """
+    if min_separation > 0.0:
+        close_idx = None
+        for idx, existing in enumerate(candidates):
+            if abs(cand.timestamp - existing.timestamp) < min_separation:
+                close_idx = idx
+                break
+
+        if close_idx is not None:
+            if cand.score > candidates[close_idx].score:
+                candidates[close_idx] = cand
+                candidates.sort(key=lambda x: x.score, reverse=True)
+                return True
+            return False
+
+    if len(candidates) < top_m:
+        candidates.append(cand)
+        candidates.sort(key=lambda x: x.score, reverse=True)
+        return True
+    elif cand.score > candidates[-1].score:
+        candidates[-1] = cand
+        candidates.sort(key=lambda x: x.score, reverse=True)
+        return True
+    return False
+
+
 def update_tracks_and_fsm(
     crop_roi: np.ndarray,
     tracked_dets,
@@ -71,7 +106,8 @@ def update_tracks_and_fsm(
     top_m_frames: int,
     full_frame_shape: Tuple[int, int],
     profiler: PipelineProfiler,
-    post_crossing_window_seconds: float = 0.0
+    post_crossing_window_seconds: float = 0.0,
+    min_frame_separation_seconds: float = 0.0
 ) -> List[TrackState]:
     """Updates tracks with new detections, updates FSM crossing, and returns committed tracks ready for emission."""
     committed_tracks = []
@@ -102,14 +138,8 @@ def update_tracks_and_fsm(
                 frame_shape=(full_h, full_w),
                 detector_confidence=conf
             )
-            # Only copy buffer if candidate qualifies for top_m
-            if len(state.best_vehicle_frames) < top_m_frames or q_score > state.best_vehicle_frames[-1].score:
-                cand = VehicleFrameCandidate(score=q_score, timestamp=timestamp, vehicle_crop=veh_crop_view.copy(), bbox_in_full_frame=(fx1, fy1, fx2, fy2))
-                if len(state.best_vehicle_frames) < top_m_frames:
-                    state.best_vehicle_frames.append(cand)
-                else:
-                    state.best_vehicle_frames[-1] = cand
-                state.best_vehicle_frames.sort(key=lambda x: x.score, reverse=True)
+            cand = VehicleFrameCandidate(score=q_score, timestamp=timestamp, vehicle_crop=veh_crop_view.copy(), bbox_in_full_frame=(fx1, fy1, fx2, fy2))
+            insert_vehicle_candidate(state.best_vehicle_frames, cand, top_m_frames, min_frame_separation_seconds)
 
         profiler.start_stage('crossing_fsm')
         fsm.update_track(state, contact_pt, timestamp)
