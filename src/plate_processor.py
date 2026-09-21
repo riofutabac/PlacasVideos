@@ -21,10 +21,19 @@ from src.deduplicator import levenshtein_distance
 logger = logging.getLogger(__name__)
 
 def is_plausible_plate_candidate(text: str) -> bool:
-    """Filters out brand names, logos, phone numbers, and OCR noise."""
-    if not text or len(text) < 4 or len(text) > 8:
+    """Filters out brand names, decals, stickers (e.g. T.U.GPS), logos, and OCR noise."""
+    if not text or len(text) < 5 or len(text) > 8:
         return False
-    return any(c.isalpha() for c in text) and any(c.isdigit() for c in text)
+    # Must have both letters and digits
+    if not any(c.isalpha() for c in text) or not any(c.isdigit() for c in text):
+        return False
+    # In Ecuador, plates start with at most 3 letters. 4 or more letters at start is a decal/brand (e.g. TUGP5, KENW0)
+    if re.match(r'^[A-Z]{4,}', text):
+        return False
+    # Plates must have at least 2 digits (e.g. TUGP5 only has 1 digit)
+    if sum(c.isdigit() for c in text) < 2:
+        return False
+    return True
 
 def vote_plate_characters(
     scored_candidates: List[Dict],
@@ -317,10 +326,10 @@ class PlateProcessor:
                     plate_crop = c_crop
                     best_plate_ts = c_ts
                     plate_conf = c_det_conf
-                    # Reject reads with < 5 characters or conf < min_ocr_confidence as sin placa
-                    if len(clean_check) < 5 or c_conf < self.min_ocr_confidence:
+                    # Reject reads with < 5 chars, conf < min_ocr_conf, or non-plausible (decals) as sin placa
+                    if len(clean_check) < 5 or c_conf < self.min_ocr_confidence or not is_plausible_plate_candidate(clean_check):
                         logger.info(
-                            f"Plate text '{c_text}' rejected (len={len(clean_check)}, conf={c_conf:.2f} < {self.min_ocr_confidence:.2f}, treated as sin placa)"
+                            f"Plate text '{c_text}' rejected (len={len(clean_check)}, conf={c_conf:.2f}, plausible={is_plausible_plate_candidate(clean_check)}, treated as sin placa)"
                         )
                         plate_raw = None
                         ocr_conf = 0.0
@@ -332,7 +341,7 @@ class PlateProcessor:
                     clean_check = "".join(ch for ch in best['text'] if ch.isalnum())
                     plate_crop, best_plate_ts = best['crop'], best['timestamp']
                     plate_conf = best['det_conf']
-                    if len(clean_check) < 5 or best['ocr_conf'] < self.min_ocr_confidence:
+                    if len(clean_check) < 5 or best['ocr_conf'] < self.min_ocr_confidence or not is_plausible_plate_candidate(clean_check):
                         plate_raw = None
                         ocr_conf = 0.0
                     else:

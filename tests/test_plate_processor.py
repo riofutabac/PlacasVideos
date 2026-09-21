@@ -483,4 +483,23 @@ def test_recognize_plate_above_min_confidence_accepted(processor):
     assert ocr_conf == 0.75
     assert plate_crop is not None
 
+def test_recognize_plate_decal_rejected_as_sin_placa(processor):
+    class DummyRes:
+        def __init__(self, text, conf):
+            self.text = text
+            self.confidence = [conf] * len(text)
+
+    # Decal like TUGP5 (T.U.GPS) with high confidence 0.96 but non-plausible plate format (4 letters + 1 digit)
+    processor.alpr.ocr.predict.side_effect = [
+        DummyRes("TUGP5", 0.96),
+        None,
+    ]
+    crop = np.zeros((30, 70, 3), dtype=np.uint8)
+    candidates = [{"crop": crop, "det_conf": 0.90, "score": 0.85, "timestamp": 10.0}]
+
+    plate_raw, plate_crop, plate_conf, ocr_conf, best_plate_ts, ocr_votes = processor.recognize_plate_candidates(candidates)
+    assert plate_raw is None  # Treated as sin placa
+    assert ocr_conf == 0.0
+    assert plate_crop is not None  # Evidence image preserved for visual audit
+
 

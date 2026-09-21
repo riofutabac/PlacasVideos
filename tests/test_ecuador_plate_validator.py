@@ -134,6 +134,11 @@ def test_non_plate_brand_text_rejected():
     assert res['plate_status'] == "REVISION_MANUAL"
     assert "carrocería" in res['plate_correction_reason'].lower()
 
+    # Commercial sticker / decal like TUGP5 (T.U.GPS) with 4 letters at start and only 1 digit
+    res_gps = apply_ecuador_heuristics("TUGP5", 0.96)
+    assert res_gps['plate_status'] == "REVISION_MANUAL"
+    assert "carrocería" in res_gps['plate_correction_reason'].lower() or "calcomanía" in res_gps['plate_correction_reason'].lower()
+
     # Pure text without digits
     res_pure = apply_ecuador_heuristics("CHEVROLET", 0.99)
     assert res_pure['plate_status'] == "REVISION_MANUAL"

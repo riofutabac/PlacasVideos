@@ -122,17 +122,19 @@ def apply_ecuador_heuristics(
     is_standard_other = bool(re.match(r'^[A-Z]{2}[0-9]{4}$', corrected_str))
     is_standard = is_standard_car or is_standard_moto or is_standard_other
 
-    # Non-plate text (body text / brand / logos / noise)
+    # Non-plate text (body text / brand / logos / stickers e.g. TUGP5)
     is_non_plate = (
         len(corrected_str) < 5 or
         len(corrected_str) > 8 or
         not any(c.isalpha() for c in corrected_str) or
-        not any(c.isdigit() for c in corrected_str)
+        not any(c.isdigit() for c in corrected_str) or
+        bool(re.match(r'^[A-Z]{4,}', corrected_str)) or
+        sum(c.isdigit() for c in corrected_str) < 2
     )
 
     if is_non_plate:
         status = 'REVISION_MANUAL'
-        reasons.append("Formato no corresponde a placa ecuatoriana (posible texto de carrocería o marca)")
+        reasons.append("Formato no corresponde a placa ecuatoriana (posible texto de carrocería, calcomanía o marca)")
     elif needs_manual_review:
         status = 'REVISION_MANUAL'
         reasons.append("Ambigüedad en lectura: requiere revisión manual")
