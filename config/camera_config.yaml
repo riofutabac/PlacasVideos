@@ -92,5 +92,5 @@ quality_ranking:
     overexposure: 0.05
 
 deduplication:
-  cooldown_seconds: 45.0
+  cooldown_seconds: 60.0
   max_levenshtein: 1

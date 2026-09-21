@@ -82,7 +82,7 @@ class ALPRPipeline:
         # Deduplicator
         d_cfg = self.cfg.get('deduplication', {})
         self.deduplicator = EventDeduplicator(
-            cooldown_seconds=d_cfg.get('cooldown_seconds', 45.0)
+            cooldown_seconds=d_cfg.get('cooldown_seconds', 60.0)
         )
 
         # Execution Device & Vehicle Model Selection
