@@ -143,6 +143,7 @@ class ALPRPipeline:
             'ocr_engine': f"{ocr_model} ({self.device.upper()})"
         }
 
+        self.post_crossing_window = float(self.cfg.get('crossing', {}).get('post_crossing_window_seconds', 0.0))
         cv2.setNumThreads(cv2.getNumberOfCPUs())
 
         if self.device == 'cuda':
@@ -293,7 +294,8 @@ class ALPRPipeline:
                 # Update Tracks & Virtual Line FSM
                 committed_tracks = update_tracks_and_fsm(
                     crop_roi, tracked_dets, tracks, cx1, cy1, timestamp,
-                    self.vehicle_model.names, self.ranker, self.fsm, top_m, full_shape, self.profiler
+                    self.vehicle_model.names, self.ranker, self.fsm, top_m, full_shape, self.profiler,
+                    post_crossing_window_seconds=self.post_crossing_window
                 )
                 for st in committed_tracks:
                     evt = self.finalize_vehicle_event(st, clip_id, file_hash, run_id, clip_start_dt)

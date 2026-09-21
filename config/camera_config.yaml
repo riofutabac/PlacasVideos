@@ -42,6 +42,9 @@ roi:
     direction_increasing_y: "ENTRADA"
     direction_decreasing_y: "SALIDA"
 
+crossing:
+  post_crossing_window_seconds: 0.0   # 0.0 = comportamiento actual inmediato (sin retardo)
+
 sampling:
   sleep_sentinel_fps: 1.0     # Frecuencia del watchdog cuando la zona duerme (1 FPS)
   preactive_fps: 3.5          # Frecuencia cuando hay movimiento preliminar (3.5 FPS)

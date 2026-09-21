@@ -114,3 +114,76 @@ def test_update_tracks_and_fsm_integration():
     assert len(tracks[10].best_vehicle_frames) == 1
     assert tracks[10].vehicle_class == "car"
     assert len(committed) == 0  # Not crossed yet
+
+def test_post_crossing_window_zero_emits_immediately():
+    class DummyDet:
+        def __init__(self, y1, y2):
+            self.tracker_id = np.array([10])
+            self.xyxy = np.array([[100, y1, 200, y2]], dtype=np.float32)
+            self.confidence = np.array([0.90], dtype=np.float32)
+            self.class_id = np.array([2], dtype=np.int32)
+        def __len__(self):
+            return 1
+
+    tracks = {}
+    fsm = CrossingFSM(line_p1=[0, 1200], line_p2=[3000, 1200])
+    ranker = QualityRanker()
+    profiler = PipelineProfiler()
+    crop = np.zeros((1500, 500, 3), dtype=np.uint8)
+
+    # Frame 1 at t=1.0, before line (y=1100)
+    update_tracks_and_fsm(crop, DummyDet(1000, 1100), tracks, 0, 0, 1.0, {2: "car"}, ranker, fsm, 5, (1664, 2960), profiler, post_crossing_window_seconds=0.0)
+    # Frame 2 at t=2.0, crossing line (y=1220)
+    update_tracks_and_fsm(crop, DummyDet(1100, 1220), tracks, 0, 0, 2.0, {2: "car"}, ranker, fsm, 5, (1664, 2960), profiler, post_crossing_window_seconds=0.0)
+    # Frame 3 at t=3.0, committing (y=1260)
+    emitted = update_tracks_and_fsm(crop, DummyDet(1150, 1260), tracks, 0, 0, 3.0, {2: "car"}, ranker, fsm, 5, (1664, 2960), profiler, post_crossing_window_seconds=0.0)
+
+    assert len(emitted) == 1
+    assert emitted[0].track_id == 10
+    assert emitted[0].crossing_timestamp == 2.0
+    assert emitted[0].direction == "ENTRADA"
+    assert emitted[0].has_emitted is True
+
+def test_post_crossing_window_delays_emission_and_accumulates_better_frames():
+    class DummyDet:
+        def __init__(self, y1, y2):
+            self.tracker_id = np.array([10])
+            self.xyxy = np.array([[100, y1, 200, y2]], dtype=np.float32)
+            self.confidence = np.array([0.90], dtype=np.float32)
+            self.class_id = np.array([2], dtype=np.int32)
+        def __len__(self):
+            return 1
+
+    tracks = {}
+    fsm = CrossingFSM(line_p1=[0, 1200], line_p2=[3000, 1200])
+    ranker = QualityRanker()
+    profiler = PipelineProfiler()
+    crop = np.zeros((1500, 500, 3), dtype=np.uint8)
+
+    # Frame 1 at t=1.0
+    update_tracks_and_fsm(crop, DummyDet(1000, 1100), tracks, 0, 0, 1.0, {2: "car"}, ranker, fsm, 5, (1664, 2960), profiler, post_crossing_window_seconds=1.5)
+    # Frame 2 at t=2.0 (crossing occurs here, crossing_timestamp = 2.0)
+    update_tracks_and_fsm(crop, DummyDet(1100, 1220), tracks, 0, 0, 2.0, {2: "car"}, ranker, fsm, 5, (1664, 2960), profiler, post_crossing_window_seconds=1.5)
+    # Frame 3 at t=2.5 (committed occurs here, elapsed since crossing = 0.5s < 1.5s -> should NOT emit yet)
+    emitted_3 = update_tracks_and_fsm(crop, DummyDet(1150, 1260), tracks, 0, 0, 2.5, {2: "car"}, ranker, fsm, 5, (1664, 2960), profiler, post_crossing_window_seconds=1.5)
+    assert len(emitted_3) == 0
+    assert tracks[10].state == "COMMITTED"
+    assert tracks[10].has_emitted is False
+    assert tracks[10].crossing_timestamp == 2.0
+
+    # Frame 4 at t=3.0 (elapsed since crossing = 1.0s < 1.5s -> still should NOT emit)
+    emitted_4 = update_tracks_and_fsm(crop, DummyDet(1200, 1300), tracks, 0, 0, 3.0, {2: "car"}, ranker, fsm, 5, (1664, 2960), profiler, post_crossing_window_seconds=1.5)
+    assert len(emitted_4) == 0
+    assert tracks[10].has_emitted is False
+
+    # Frame 5 at t=3.6 (elapsed = 1.6s >= 1.5s -> SHOULD EMIT!)
+    emitted_5 = update_tracks_and_fsm(crop, DummyDet(1250, 1350), tracks, 0, 0, 3.6, {2: "car"}, ranker, fsm, 5, (1664, 2960), profiler, post_crossing_window_seconds=1.5)
+    assert len(emitted_5) == 1
+    assert emitted_5[0].track_id == 10
+    # Crucial: crossing_timestamp must remain 2.0, NOT 3.6!
+    assert emitted_5[0].crossing_timestamp == 2.0
+    assert emitted_5[0].direction == "ENTRADA"
+    assert emitted_5[0].has_emitted is True
+    # Frames were accumulated throughout all 5 steps
+    assert len(emitted_5[0].best_vehicle_frames) == 5
+
