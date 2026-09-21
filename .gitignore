@@ -44,3 +44,6 @@ benchmarks/*.jpg
 trt_cache/
 .coverage
 .pytest_cache/
+
+# Borrador regenerado por build_gt_candidates.py en cada corrida
+benchmarks/ground_truth_draft.json
