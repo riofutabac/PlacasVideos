@@ -115,27 +115,117 @@ def get_event_datetime(evt: Dict[str, Any]) -> Optional[datetime]:
     except Exception:
         return None
 
-def match_with_database(
+NEAR_PLATE_MAX_DISTANCE = 2
+
+
+def _load_db_events(db_path: str) -> List[Dict[str, Any]]:
+    if not os.path.exists(db_path):
+        return []
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM events WHERE duplicate_of IS NULL ORDER BY event_timestamp ASC")
+    db_events = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return db_events
+
+
+def _build_candidate_pairs(
     audit_entries: List[Dict[str, Any]],
-    db_path: str = "data/events.sqlite",
-    tolerance_minutes: float = 3.0
-) -> List[Dict[str, Any]]:
-    db_events = []
-    if os.path.exists(db_path):
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        cur.execute("SELECT * FROM events WHERE duplicate_of IS NULL ORDER BY event_timestamp ASC")
-        db_events = [dict(r) for r in cur.fetchall()]
-        conn.close()
-
-    gt_candidates = []
-
-    for idx, audit in enumerate(audit_entries):
+    db_events: List[Dict[str, Any]],
+    tolerance_seconds: float
+) -> List[tuple]:
+    """
+    Builds every (audit_row, event) pair worth considering as a match, scored so a
+    global greedy assignment (sorted by priority, then score) yields a one-to-one
+    mapping. Priority: EXACT_PLATE (0) > NEAR_PLATE (1) > VEHICLE_ONLY (2). We do not
+    depend on scipy for a true optimal assignment (linear_sum_assignment); sorting all
+    candidate pairs by (priority, score) and greedily claiming unused rows/events is a
+    documented approximation that is exact whenever priority tiers do not conflict,
+    which holds for this dataset size (39 audit rows).
+    """
+    pairs = []
+    for audit_idx, audit in enumerate(audit_entries):
         plate = audit["plate_text"]
         t2_val = parse_time_cell(audit.get("time_cam2"))
         t1_val = parse_time_cell(audit.get("time_cam1"))
         t_ref = t2_val or t1_val
+        if t_ref is None:
+            continue
+
+        for evt_idx, evt in enumerate(db_events):
+            evt_dt = get_event_datetime(evt)
+            if evt_dt is None:
+                continue
+            audit_dt = datetime(evt_dt.year, evt_dt.month, evt_dt.day, t_ref.hour, t_ref.minute, t_ref.second)
+            diff = abs((evt_dt - audit_dt).total_seconds())
+            if diff > tolerance_seconds:
+                continue
+
+            det_p = (evt.get("plate_corrected") or evt.get("plate_normalized") or "").strip().upper()
+
+            if det_p and det_p == plate:
+                pairs.append((0, diff, audit_idx, evt_idx, diff, 0, "EXACT_PLATE"))
+            elif det_p:
+                dist = levenshtein_distance(plate, det_p)
+                if dist <= NEAR_PLATE_MAX_DISTANCE:
+                    pairs.append((1, dist * 1000.0 + diff, audit_idx, evt_idx, diff, dist, "NEAR_PLATE"))
+            else:
+                pairs.append((2, diff, audit_idx, evt_idx, diff, None, "VEHICLE_ONLY"))
+
+    pairs.sort(key=lambda p: (p[0], p[1]))
+    return pairs
+
+
+def _assign_one_to_one(
+    audit_entries: List[Dict[str, Any]],
+    db_events: List[Dict[str, Any]],
+    pairs: List[tuple]
+) -> Dict[int, tuple]:
+    """Greedily claims the best-scoring pair per audit row/event, one-to-one."""
+    used_audit = set()
+    used_evt = set()
+    assignment: Dict[int, tuple] = {}
+
+    for _priority, _score, audit_idx, evt_idx, diff, dist, match_type in pairs:
+        if audit_idx in used_audit or evt_idx in used_evt:
+            continue
+        used_audit.add(audit_idx)
+        used_evt.add(evt_idx)
+        assignment[audit_idx] = (evt_idx, diff, dist, match_type)
+
+    # Exact-plate fallback: plate matches literally but outside the time tolerance
+    # (e.g. audit timestamp rounding error, clock drift). Still one-to-one.
+    for audit_idx, audit in enumerate(audit_entries):
+        if audit_idx in used_audit:
+            continue
+        plate = audit["plate_text"]
+        for evt_idx, evt in enumerate(db_events):
+            if evt_idx in used_evt:
+                continue
+            det_p = (evt.get("plate_corrected") or evt.get("plate_normalized") or "").strip().upper()
+            if det_p == plate:
+                used_audit.add(audit_idx)
+                used_evt.add(evt_idx)
+                assignment[audit_idx] = (evt_idx, None, 0, "EXACT_PLATE_FALLBACK")
+                break
+
+    return assignment
+
+
+def match_with_database(
+    audit_entries: List[Dict[str, Any]],
+    db_path: str = "data/events.sqlite",
+    tolerance_seconds: float = 75.0
+) -> List[Dict[str, Any]]:
+    db_events = _load_db_events(db_path)
+
+    pairs = _build_candidate_pairs(audit_entries, db_events, tolerance_seconds)
+    assignment = _assign_one_to_one(audit_entries, db_events, pairs)
+
+    gt_candidates = []
+    for idx, audit in enumerate(audit_entries):
+        plate = audit["plate_text"]
 
         cand_entry = {
             "ground_truth_id": f"GT_CAND_{idx+1:03d}",
@@ -149,6 +239,7 @@ def match_with_database(
             "matched_event_id": None,
             "match_type": None,
             "time_diff_sec": None,
+            "edit_distance": None,
             "video_source": None,
             "approx_timestamp": None,
             "pipeline_detected_plate": None,
@@ -157,82 +248,40 @@ def match_with_database(
             "confidence_ocr": None
         }
 
-        best_match = None
-        best_diff = None
-        match_type = None
-
-        if t_ref is not None and db_events:
-            exact_matches = []
-            window_matches = []
-
-            for evt in db_events:
-                evt_dt = get_event_datetime(evt)
-                if evt_dt is None:
-                    continue
-                audit_dt = datetime(evt_dt.year, evt_dt.month, evt_dt.day, t_ref.hour, t_ref.minute, t_ref.second)
-                diff = abs((evt_dt - audit_dt).total_seconds())
-                det_p = (evt.get("plate_corrected") or evt.get("plate_normalized") or "").strip().upper()
-
-                if diff <= tolerance_minutes * 60:
-                    if det_p == plate:
-                        exact_matches.append((diff, evt))
-                    else:
-                        window_matches.append((diff, evt))
-
-            if exact_matches:
-                exact_matches.sort(key=lambda x: x[0])
-                best_diff, best_match = exact_matches[0]
-                match_type = "EXACT_PLATE_AND_TIME"
-            elif window_matches:
-                # Prioritize OCR similarity within the window, then smallest time difference
-                def _window_sort_key(item):
-                    diff, evt = item
-                    p_read = (evt.get("plate_corrected") or evt.get("plate_normalized") or "").strip().upper()
-                    dist = levenshtein_distance(plate, p_read) if p_read else 99
-                    return (dist, diff)
-                window_matches.sort(key=_window_sort_key)
-                best_diff, best_match = window_matches[0]
-                match_type = "TIME_WINDOW"
-
-        if not best_match and db_events:
-            for evt in db_events:
-                det_p = (evt.get("plate_corrected") or evt.get("plate_normalized") or "").strip().upper()
-                if det_p == plate:
-                    best_match = evt
-                    match_type = "EXACT_PLATE_FALLBACK"
-                    best_diff = None
-                    break
-
-        if best_match:
-            cand_entry["matched_event_id"] = best_match.get("event_id")
+        assigned = assignment.get(idx)
+        if assigned is not None:
+            evt_idx, diff, dist, match_type = assigned
+            evt = db_events[evt_idx]
+            cand_entry["matched_event_id"] = evt.get("event_id")
             cand_entry["match_type"] = match_type
-            cand_entry["time_diff_sec"] = round(best_diff, 2) if best_diff is not None else None
-            cand_entry["video_source"] = best_match.get("video_source")
-            cand_entry["approx_timestamp"] = best_match.get("event_timestamp")
-            cand_entry["pipeline_detected_plate"] = best_match.get("plate_corrected") or best_match.get("plate_normalized")
-            cand_entry["vehicle_crop_path"] = best_match.get("vehicle_crop_path")
-            cand_entry["plate_crop_path"] = best_match.get("plate_crop_path")
-            cand_entry["confidence_ocr"] = best_match.get("confidence_ocr")
+            cand_entry["time_diff_sec"] = round(diff, 2) if diff is not None else None
+            cand_entry["edit_distance"] = dist
+            cand_entry["video_source"] = evt.get("video_source")
+            cand_entry["approx_timestamp"] = evt.get("event_timestamp")
+            cand_entry["pipeline_detected_plate"] = evt.get("plate_corrected") or evt.get("plate_normalized")
+            cand_entry["vehicle_crop_path"] = evt.get("vehicle_crop_path")
+            cand_entry["plate_crop_path"] = evt.get("plate_crop_path")
+            cand_entry["confidence_ocr"] = evt.get("confidence_ocr")
 
         gt_candidates.append(cand_entry)
 
     return gt_candidates
 
 def build_ground_truth_candidates(
-    excel_path: str = "Revisión bypass Pintag.xlsx",
+    excel_path: str = "Revisión bypass Pintag.xlsx",
     db_path: str = "data/events.sqlite",
-    output_path: str = "benchmarks/ground_truth_draft.json"
+    output_path: str = "benchmarks/ground_truth_draft.json",
+    tolerance_seconds: float = 75.0
 ) -> List[Dict[str, Any]]:
     audit_entries = load_audit_excel(excel_path)
     print(f"📋 [GT Builder] Leídas {len(audit_entries)} placas auditadas del Excel.")
 
-    candidates = match_with_database(audit_entries, db_path)
+    candidates = match_with_database(audit_entries, db_path, tolerance_seconds)
     n_total = len(candidates)
-    n_exact = sum(1 for c in candidates if c["match_type"] == "EXACT_PLATE_AND_TIME")
-    n_window = sum(1 for c in candidates if c["match_type"] == "TIME_WINDOW")
-    n_fallback = sum(1 for c in candidates if c["match_type"] == "EXACT_PLATE_FALLBACK")
-    n_missed = sum(1 for c in candidates if not c["matched_event_id"])
-    n_matched = n_exact + n_window + n_fallback
+    n_exact = sum(1 for c in candidates if c["match_type"] in ("EXACT_PLATE", "EXACT_PLATE_FALLBACK"))
+    n_near = sum(1 for c in candidates if c["match_type"] == "NEAR_PLATE")
+    n_vehicle_only = sum(1 for c in candidates if c["match_type"] == "VEHICLE_ONLY")
+    n_missed = sum(1 for c in candidates if not c["match_type"])
 
     db_total = 0
     if os.path.exists(db_path):
@@ -242,6 +291,8 @@ def build_ground_truth_candidates(
         db_total = cur.fetchone()[0]
         conn.close()
 
+    # matched_event_id is unique per event thanks to the one-to-one assignment, so this
+    # count of "events consumed by an audit row" is exact, not an estimate.
     matched_ids = set(c["matched_event_id"] for c in candidates if c["matched_event_id"])
     extra_detected = max(0, db_total - len(matched_ids))
 
@@ -251,17 +302,17 @@ def build_ground_truth_candidates(
         return candidates
 
     print(f"\n📊 === Resumen de Cruce con Base de Datos ({db_path}) ===")
+    print(f"  • Tolerancia temporal: {tolerance_seconds:.0f}s")
     print(f"  • Total vehículos auditados en Excel: {n_total}")
     print(f"  • Total eventos únicos en el sistema: {db_total}")
-    print(f"  • Coincidencia Exacta (Placa + Hora): {n_exact} ({n_exact/n_total*100:.1f}%)")
-    print(f"  • Coincidencia Ventana Temporal (Candidato/Lectura OCR): {n_window} ({n_window/n_total*100:.1f}%)")
-    print(f"  • Coincidencia Exacta Fuera de Ventana: {n_fallback} ({n_fallback/n_total*100:.1f}%)")
+    print(f"  • Coincidencia Exacta de Placa: {n_exact} ({n_exact/n_total*100:.1f}%)")
+    print(f"  • Coincidencia Cercana (1-{NEAR_PLATE_MAX_DISTANCE} caracteres, mismo vehículo con error OCR): {n_near} ({n_near/n_total*100:.1f}%)")
+    print(f"  • Solo Vehículo (detectado, placa no leída): {n_vehicle_only} ({n_vehicle_only/n_total*100:.1f}%)")
     print(f"  • No encontrados / Sin cruce: {n_missed} ({n_missed/n_total*100:.1f}%)")
-    print(f"  • Total asociados a eventos: {n_matched} ({n_matched/n_total*100:.1f}%)")
-    print(f"  • Vehículos adicionales detectados (no en auditoría humana): {extra_detected}\n")
+    print(f"  • Eventos adicionales detectados (no listados en auditoría; esperado, la auditoría solo registra vehículos que cruzaron ambas cámaras): {extra_detected}\n")
 
-    print(f"{'#':<4} {'Placa GT':<9} {'Tipo':<7} {'Hora Cam2':<10} {'Tipo Match':<22} {'Placa Pipeline':<15} {'Diff (s)':<9} {'Conf OCR':<8}")
-    print("-" * 88)
+    print(f"{'#':<4} {'Placa GT':<9} {'Tipo':<7} {'Hora Cam2':<10} {'Tipo Match':<16} {'Placa Pipeline':<15} {'Diff (s)':<9} {'Dist':<5} {'Conf OCR':<8}")
+    print("-" * 96)
     for c in candidates:
         gid = c["ground_truth_id"].replace("GT_CAND_", "")
         plt_gt = c["plate_text"]
@@ -270,8 +321,9 @@ def build_ground_truth_candidates(
         m_type = c["match_type"] or "NO_MATCH"
         p_pipe = c["pipeline_detected_plate"] or "-"
         diff_s = f"{c['time_diff_sec']}s" if c["time_diff_sec"] is not None else "-"
+        dist_s = str(c["edit_distance"]) if c["edit_distance"] is not None else "-"
         conf_o = f"{c['confidence_ocr']:.2f}" if c["confidence_ocr"] is not None else "-"
-        print(f"{gid:<4} {plt_gt:<9} {v_type:<7} {h_cam2:<10} {m_type:<22} {p_pipe:<15} {diff_s:<9} {conf_o:<8}")
+        print(f"{gid:<4} {plt_gt:<9} {v_type:<7} {h_cam2:<10} {m_type:<16} {p_pipe:<15} {diff_s:<9} {dist_s:<5} {conf_o:<8}")
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
@@ -282,12 +334,21 @@ def build_ground_truth_candidates(
 
 def main():
     parser = argparse.ArgumentParser(description="Build ground truth candidate dataset from audit Excel")
-    parser.add_argument("--excel", default="Revisión bypass Pintag.xlsx", help="Audit Excel path")
+    parser.add_argument("--excel", default="Revisión bypass Pintag.xlsx", help="Audit Excel path")
     parser.add_argument("--db", default="data/events.sqlite", help="SQLite database path")
     parser.add_argument("--output", default="benchmarks/ground_truth_draft.json", help="Output draft JSON path")
+    parser.add_argument(
+        "--time-tolerance", type=float, default=75.0, dest="time_tolerance",
+        help=(
+            "Max seconds between the audit's 'Hora cam 2' and a detected event's timestamp "
+            "to be considered a match candidate (default: 75s). The audit time is rounded "
+            "to the minute, so 60-90s is a sensible range; too large a tolerance produces "
+            "false matches between unrelated vehicles."
+        )
+    )
     args = parser.parse_args()
 
-    build_ground_truth_candidates(args.excel, args.db, args.output)
+    build_ground_truth_candidates(args.excel, args.db, args.output, args.time_tolerance)
 
 if __name__ == "__main__":
     main()

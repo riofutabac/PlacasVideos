@@ -209,21 +209,22 @@ def test_build_gt_candidates_matching_logic(tmp_path):
         {"plate_text": "NOT9999", "vehicle_type": "car", "province": "Pichincha", "note": "", "time_cam1": None, "time_cam2": "10:00:00"}
     ]
 
-    candidates = match_with_database(audit_entries, db_path=db_file, tolerance_minutes=3.0)
+    candidates = match_with_database(audit_entries, db_path=db_file, tolerance_seconds=180.0)
     assert len(candidates) == 4
 
     # 1. Exact match
     c0 = candidates[0]
-    assert c0["match_type"] == "EXACT_PLATE_AND_TIME"
+    assert c0["match_type"] == "EXACT_PLATE"
     assert c0["matched_event_id"] == "EVT_1"
     assert c0["time_diff_sec"] == 5.0
     assert c0["pipeline_detected_plate"] == "PBO4275"
 
-    # 2. Time window match
+    # 2. Near plate match (1-char OCR error, same vehicle)
     c1 = candidates[1]
-    assert c1["match_type"] == "TIME_WINDOW"
+    assert c1["match_type"] == "NEAR_PLATE"
     assert c1["matched_event_id"] == "EVT_2"
     assert c1["time_diff_sec"] == 10.0
+    assert c1["edit_distance"] == 1
     assert c1["pipeline_detected_plate"] == "PAC7438"
 
     # 3. Exact plate fallback
@@ -236,6 +237,113 @@ def test_build_gt_candidates_matching_logic(tmp_path):
     c3 = candidates[3]
     assert c3["match_type"] is None
     assert c3["matched_event_id"] is None
+
+
+def test_match_with_database_is_one_to_one(tmp_path):
+    """Two audit rows near the same event must not both claim it; only the
+    better-scoring (closer time / exact plate) row gets the assignment."""
+    import sqlite3
+    from benchmarks.build_gt_candidates import match_with_database
+    from src.db_manager import DatabaseManager
+
+    db_file = str(tmp_path / "test_events_1to1.sqlite")
+    db = DatabaseManager(db_file)
+
+    with db._get_connection() as conn:
+        conn.execute("""
+            INSERT INTO events (
+                event_id, processing_run_id, video_source, clip_hash, event_timestamp,
+                datetime_str, direction, vehicle_type, plate_raw, plate_normalized,
+                plate_corrected, plate_status, confidence_vehicle, confidence_ocr,
+                vehicle_crop_path, track_id, line_id
+            ) VALUES
+            ('EVT_ONLY', 'RUN_1', 'clip1.mp4', 'h1', 10.0, '2026-09-09 11:00:30', 'ENTRADA', 'car', 'RCB0545', 'RCB0545', 'RCB0545', 'VALID', 0.90, 0.90, 'crop1.jpg', 1, 'L1')
+        """)
+        conn.commit()
+
+    audit_entries = [
+        # Farther in time and a different plate: weaker candidate for EVT_ONLY.
+        {"plate_text": "PAA2210", "vehicle_type": "car", "province": "Pichincha", "note": "", "time_cam1": None, "time_cam2": "11:02:35"},
+        # Exact plate match, closer in time: should win the assignment.
+        {"plate_text": "RCB0545", "vehicle_type": "car", "province": "Pichincha", "note": "", "time_cam1": None, "time_cam2": "11:00:25"},
+    ]
+
+    candidates = match_with_database(audit_entries, db_path=db_file, tolerance_seconds=180.0)
+
+    assigned = [c for c in candidates if c["matched_event_id"] == "EVT_ONLY"]
+    assert len(assigned) == 1
+    assert assigned[0]["plate_text"] == "RCB0545"
+    assert assigned[0]["match_type"] == "EXACT_PLATE"
+
+    loser = next(c for c in candidates if c["plate_text"] == "PAA2210")
+    assert loser["matched_event_id"] is None
+    assert loser["match_type"] is None
+
+
+def test_match_with_database_bogus_far_pair_is_no_match(tmp_path):
+    """A pair with a wildly different plate and far apart in time must not be
+    reported as any kind of match."""
+    import sqlite3
+    from benchmarks.build_gt_candidates import match_with_database
+    from src.db_manager import DatabaseManager
+
+    db_file = str(tmp_path / "test_events_bogus.sqlite")
+    db = DatabaseManager(db_file)
+
+    with db._get_connection() as conn:
+        conn.execute("""
+            INSERT INTO events (
+                event_id, processing_run_id, video_source, clip_hash, event_timestamp,
+                datetime_str, direction, vehicle_type, plate_raw, plate_normalized,
+                plate_corrected, plate_status, confidence_vehicle, confidence_ocr,
+                vehicle_crop_path, track_id, line_id
+            ) VALUES
+            ('EVT_FAR', 'RUN_1', 'clip1.mp4', 'h1', 10.0, '2026-09-09 12:01:12', 'ENTRADA', 'car', 'PFM8305', 'PFM8305', 'PFM8305', 'VALID', 0.90, 0.90, 'crop1.jpg', 1, 'L1')
+        """)
+        conn.commit()
+
+    audit_entries = [
+        # 72s away and a completely different plate -> NO_MATCH, not a weak "time window" match.
+        {"plate_text": "JBA0988", "vehicle_type": "car", "province": "Pichincha", "note": "", "time_cam1": None, "time_cam2": "12:00:00"},
+    ]
+
+    candidates = match_with_database(audit_entries, db_path=db_file, tolerance_seconds=60.0)
+    assert len(candidates) == 1
+    assert candidates[0]["match_type"] is None
+    assert candidates[0]["matched_event_id"] is None
+
+
+def test_match_with_database_vehicle_only(tmp_path):
+    """An unmatched detected event with no readable plate, close in time to an
+    audit row, is evidence of a vehicle-only detection (plate not read)."""
+    import sqlite3
+    from benchmarks.build_gt_candidates import match_with_database
+    from src.db_manager import DatabaseManager
+
+    db_file = str(tmp_path / "test_events_vehicle_only.sqlite")
+    db = DatabaseManager(db_file)
+
+    with db._get_connection() as conn:
+        conn.execute("""
+            INSERT INTO events (
+                event_id, processing_run_id, video_source, clip_hash, event_timestamp,
+                datetime_str, direction, vehicle_type, plate_raw, plate_normalized,
+                plate_corrected, plate_status, confidence_vehicle, confidence_ocr,
+                vehicle_crop_path, track_id, line_id
+            ) VALUES
+            ('EVT_NOPLATE', 'RUN_1', 'clip1.mp4', 'h1', 10.0, '2026-09-09 09:15:20', 'ENTRADA', 'car', NULL, NULL, NULL, 'UNREADABLE', 0.90, NULL, 'crop1.jpg', 1, 'L1')
+        """)
+        conn.commit()
+
+    audit_entries = [
+        {"plate_text": "ABC1234", "vehicle_type": "car", "province": "Pichincha", "note": "", "time_cam1": None, "time_cam2": "09:15:10"},
+    ]
+
+    candidates = match_with_database(audit_entries, db_path=db_file, tolerance_seconds=60.0)
+    assert len(candidates) == 1
+    assert candidates[0]["match_type"] == "VEHICLE_ONLY"
+    assert candidates[0]["matched_event_id"] == "EVT_NOPLATE"
+    assert candidates[0]["pipeline_detected_plate"] is None
 
 def test_excel_report_exporter_with_certainty_and_duplicates(tmp_path):
     import sqlite3
