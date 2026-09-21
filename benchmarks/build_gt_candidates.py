@@ -212,13 +212,26 @@ def build_ground_truth_candidates(
     n_missed = sum(1 for c in candidates if not c["matched_event_id"])
     n_matched = n_exact + n_window + n_fallback
 
+    db_total = 0
+    if os.path.exists(db_path):
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM events WHERE duplicate_of IS NULL")
+        db_total = cur.fetchone()[0]
+        conn.close()
+
+    matched_ids = set(c["matched_event_id"] for c in candidates if c["matched_event_id"])
+    extra_detected = max(0, db_total - len(matched_ids))
+
     print(f"\n📊 === Resumen de Cruce con Base de Datos ({db_path}) ===")
-    print(f"  • Total vehículos auditados: {n_total}")
+    print(f"  • Total vehículos auditados en Excel: {n_total}")
+    print(f"  • Total eventos únicos en el sistema: {db_total}")
     print(f"  • Coincidencia Exacta (Placa + Hora): {n_exact} ({n_exact/n_total*100:.1f}%)")
     print(f"  • Coincidencia Ventana Temporal (Candidato/Lectura OCR): {n_window} ({n_window/n_total*100:.1f}%)")
     print(f"  • Coincidencia Exacta Fuera de Ventana: {n_fallback} ({n_fallback/n_total*100:.1f}%)")
     print(f"  • No encontrados / Sin cruce: {n_missed} ({n_missed/n_total*100:.1f}%)")
-    print(f"  • Total asociados a eventos: {n_matched} ({n_matched/n_total*100:.1f}%)\n")
+    print(f"  • Total asociados a eventos: {n_matched} ({n_matched/n_total*100:.1f}%)")
+    print(f"  • Vehículos adicionales detectados (no en auditoría humana): {extra_detected}\n")
 
     print(f"{'#':<4} {'Placa GT':<9} {'Tipo':<7} {'Hora Cam2':<10} {'Tipo Match':<22} {'Placa Pipeline':<15} {'Diff (s)':<9} {'Conf OCR':<8}")
     print("-" * 88)

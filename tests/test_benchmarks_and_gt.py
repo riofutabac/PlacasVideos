@@ -237,4 +237,43 @@ def test_build_gt_candidates_matching_logic(tmp_path):
     assert c3["match_type"] is None
     assert c3["matched_event_id"] is None
 
+def test_excel_report_exporter_with_certainty_and_duplicates(tmp_path):
+    import sqlite3
+    import openpyxl
+    from src.db_manager import DatabaseManager
+    from src.excel_exporter import ExcelReportExporter
+
+    db_file = str(tmp_path / "test_export.sqlite")
+    db = DatabaseManager(db_file)
+
+    with db._get_connection() as conn:
+        conn.execute("""
+            INSERT INTO events (
+                event_id, processing_run_id, video_source, clip_hash, event_timestamp,
+                datetime_str, direction, vehicle_type, plate_raw, plate_normalized,
+                plate_corrected, plate_status, confidence_vehicle, confidence_ocr,
+                vehicle_crop_path, track_id, line_id, duplicate_of, ocr_votes
+            ) VALUES
+            ('EVT_1', 'RUN_1', 'clip1.mp4', 'h1', 10.0, '2026-09-09 11:07:05', 'ENTRADA', 'truck', 'PBO4275', 'PBO4275', 'PBO4275', 'OK', 0.95, 0.99, '', 1, 'L1', NULL, '[["PBO4275", 1.0], ["PBO4275", 0.98]]'),
+            ('EVT_2', 'RUN_1', 'clip1.mp4', 'h1', 15.0, '2026-09-09 11:07:10', 'ENTRADA', 'truck', 'PBO4275', 'PBO4275', 'PBO4275', 'OK', 0.95, 0.99, '', 2, 'L1', 'EVT_1', NULL)
+        """)
+        conn.commit()
+
+    out_xlsx = str(tmp_path / "out_report.xlsx")
+    exporter = ExcelReportExporter(db_file)
+    exporter.export_report(out_xlsx, include_duplicates=True)
+
+    wb = openpyxl.load_workbook(out_xlsx)
+    assert "Auditoria Transito" in wb.sheetnames
+    assert "Duplicados Descartados" in wb.sheetnames
+
+    ws_main = wb["Auditoria Transito"]
+    assert ws_main.cell(row=1, column=8).value == "Certeza Auditoría"
+    assert ws_main.cell(row=1, column=9).value == "Consenso OCR"
+    assert ws_main.cell(row=2, column=8).value == "ALTA (SEGURA)"
+    assert ws_main.cell(row=2, column=9).value == "2/2 lecturas"
+
+    ws_dup = wb["Duplicados Descartados"]
+    assert ws_dup.cell(row=2, column=3).value == "EVT_1"
+
 

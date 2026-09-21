@@ -43,7 +43,7 @@ def calculate_visual_similarity(crop1: np.ndarray, crop2: np.ndarray) -> float:
         return 0.0
 
 class EventDeduplicator:
-    def __init__(self, cooldown_seconds: float = 25.0, max_history: int = 50):
+    def __init__(self, cooldown_seconds: float = 45.0, max_history: int = 50):
         self.cooldown_seconds = cooldown_seconds
         self.max_history = max_history
         self.emitted_tracks: set = set()  # (track_id, line_id) for current clip

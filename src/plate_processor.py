@@ -20,9 +20,15 @@ from src.deduplicator import levenshtein_distance
 
 logger = logging.getLogger(__name__)
 
+def is_plausible_plate_candidate(text: str) -> bool:
+    """Filters out brand names, logos, phone numbers, and OCR noise."""
+    if not text or len(text) < 4 or len(text) > 8:
+        return False
+    return any(c.isalpha() for c in text) and any(c.isdigit() for c in text)
+
 def vote_plate_characters(
     scored_candidates: List[Dict],
-    province_prior_p: float = 0.0,
+    province_prior_p: float = 0.05,
     manual_review_threshold: float = 0.0
 ) -> Tuple[Optional[str], float, Optional[np.ndarray], Optional[float], float, bool]:
     """
@@ -62,9 +68,17 @@ def vote_plate_characters(
     if not valid:
         return None, 0.0, None, None, 0.0, False
 
+    # Filter out brand/body text (e.g. KENW0RRTH) if any plausible plate candidates exist
+    needs_manual_review = False
+    plausible = [v for v in valid if is_plausible_plate_candidate(v['clean_text'])]
+    if plausible:
+        valid = plausible
+    else:
+        needs_manual_review = True
+
     if len(valid) == 1:
         v0 = valid[0]
-        return v0['clean_text'], v0['ocr_conf'], v0['crop'], v0['timestamp'], v0['det_conf'], False
+        return v0['clean_text'], v0['ocr_conf'], v0['crop'], v0['timestamp'], v0['det_conf'], needs_manual_review
 
     unique_texts = list(set(v['clean_text'] for v in valid))
     scores: Dict[str, float] = {}
@@ -91,7 +105,6 @@ def vote_plate_characters(
     winner_text, winner_score = ranked[0]
 
     runner_up = ranked[1] if len(ranked) > 1 else None
-    needs_manual_review = False
     if runner_up and manual_review_threshold > 0.0:
         r_text, r_score = runner_up
         diff = winner_score - r_score

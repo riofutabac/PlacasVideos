@@ -119,9 +119,21 @@ def apply_ecuador_heuristics(
     # Determine status
     is_standard_car = bool(re.match(r'^[A-Z]{3}[0-9]{3,4}$', corrected_str))
     is_standard_moto = bool(re.match(r'^[A-Z]{2}[0-9]{3}[A-Z]$', corrected_str))
-    is_standard = is_standard_car or is_standard_moto
+    is_standard_other = bool(re.match(r'^[A-Z]{2}[0-9]{4}$', corrected_str))
+    is_standard = is_standard_car or is_standard_moto or is_standard_other
 
-    if needs_manual_review:
+    # Non-plate text (body text / brand / logos / noise)
+    is_non_plate = (
+        len(corrected_str) < 5 or
+        len(corrected_str) > 8 or
+        not any(c.isalpha() for c in corrected_str) or
+        not any(c.isdigit() for c in corrected_str)
+    )
+
+    if is_non_plate:
+        status = 'REVISION_MANUAL'
+        reasons.append("Formato no corresponde a placa ecuatoriana (posible texto de carrocería o marca)")
+    elif needs_manual_review:
         status = 'REVISION_MANUAL'
         reasons.append("Ambigüedad en lectura: requiere revisión manual")
     elif is_standard and ocr_conf >= 0.75:
@@ -131,7 +143,8 @@ def apply_ecuador_heuristics(
     elif is_standard:
         status = 'OK'
     else:
-        status = 'FORMATO_ESPECIAL_O_MOTO'
+        status = 'REVISION_MANUAL'
+        reasons.append("Formato no estándar")
 
     return {
         'plate_raw': raw_text,

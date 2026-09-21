@@ -425,4 +425,22 @@ def test_vote_plate_characters_never_invents_chimeric_plates():
     assert plate55 == "PFB5908"
     assert plate55 != "GFB5935"
 
+def test_vote_plate_characters_filters_body_text_brands():
+    # Truck with real plate crop and brand grill crop (KENW0RRTH)
+    c_mixed = [
+        {'text': 'PBO4275', 'ocr_conf': 0.95, 'plate_score': 1.0, 'timestamp': 1.0, 'crop': np.zeros((10, 10))},
+        {'text': 'KENW0RRTH', 'ocr_conf': 0.98, 'plate_score': 1.0, 'timestamp': 2.0, 'crop': np.zeros((10, 10))},
+    ]
+    plate, conf, _, _, _, needs_review = vote_plate_characters(c_mixed)
+    assert plate == "PBO4275"
+    assert needs_review is False
+
+    # Vehicle with ONLY body text brand detected -> flags manual review
+    c_only_brand = [
+        {'text': 'KENW0RRTH', 'ocr_conf': 0.95, 'plate_score': 1.0, 'timestamp': 1.0, 'crop': np.zeros((10, 10))},
+    ]
+    plate_b, _, _, _, _, needs_review_b = vote_plate_characters(c_only_brand)
+    assert plate_b == "KENW0RRTH"
+    assert needs_review_b is True
+
 

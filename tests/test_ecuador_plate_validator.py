@@ -110,9 +110,19 @@ def test_plate_status_by_confidence():
     res_low = apply_ecuador_heuristics("PCW2492", 0.45)
     assert res_low['plate_status'] == "BAJA_CONFIANZA"
 
-    # Non standard format with high confidence
+    # Non standard format with high confidence flags manual review
     res_spec = apply_ecuador_heuristics("POLICIA1", 0.95)
-    assert res_spec['plate_status'] == "FORMATO_ESPECIAL_O_MOTO"
+    assert res_spec['plate_status'] == "REVISION_MANUAL"
+
+def test_non_plate_brand_text_rejected():
+    # Brand text like KENW0RRTH has 9 chars -> REVISION_MANUAL
+    res = apply_ecuador_heuristics("KENW0RRTH", 0.95)
+    assert res['plate_status'] == "REVISION_MANUAL"
+    assert "carrocería" in res['plate_correction_reason'].lower()
+
+    # Pure text without digits
+    res_pure = apply_ecuador_heuristics("CHEVROLET", 0.99)
+    assert res_pure['plate_status'] == "REVISION_MANUAL"
 
 def test_all_province_codes_exist():
     assert PROVINCE_CODES['P'] == 'Pichincha'
