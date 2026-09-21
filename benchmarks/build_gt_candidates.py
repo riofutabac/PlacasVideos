@@ -12,6 +12,7 @@ import re
 import json
 import sqlite3
 import argparse
+import unicodedata
 import openpyxl
 from datetime import datetime, date, time, timedelta
 from typing import List, Dict, Any, Optional
@@ -36,10 +37,31 @@ def parse_time_cell(val: Any) -> Optional[time]:
                 pass
     return None
 
+def resolve_audit_excel(excel_path: str) -> Optional[str]:
+    """
+    Resolves the audit workbook tolerating Unicode accent normalization.
+    macOS stores the accent in 'Revision' decomposed (NFD) while Linux/Colab keeps it
+    composed (NFC), so an exact path match fails on one of the two platforms.
+    """
+    if os.path.exists(excel_path):
+        return excel_path
+
+    target = unicodedata.normalize("NFC", os.path.basename(excel_path)).lower()
+    search_dir = os.path.dirname(excel_path) or "."
+    try:
+        for name in os.listdir(search_dir):
+            if unicodedata.normalize("NFC", name).lower() == target:
+                return os.path.join(search_dir, name)
+    except OSError:
+        return None
+    return None
+
 def load_audit_excel(excel_path: str = "Revisión bypass Pintag.xlsx") -> List[Dict[str, Any]]:
-    if not os.path.exists(excel_path):
-        print(f"⚠️ [GT Builder] No se encontró el archivo Excel en {excel_path}")
+    resolved = resolve_audit_excel(excel_path)
+    if resolved is None:
+        print(f"⚠️ [GT Builder] No se encontro el archivo Excel en {excel_path}")
         return []
+    excel_path = resolved
 
     wb = openpyxl.load_workbook(excel_path, data_only=True)
     ws = wb.active
@@ -222,6 +244,11 @@ def build_ground_truth_candidates(
 
     matched_ids = set(c["matched_event_id"] for c in candidates if c["matched_event_id"])
     extra_detected = max(0, db_total - len(matched_ids))
+
+    if n_total == 0:
+        print(f"\n⚠️ [GT Builder] No hay filas auditadas que cruzar; revisa la ruta del Excel (--excel).")
+        print(f"  • Total eventos unicos en el sistema: {db_total}")
+        return candidates
 
     print(f"\n📊 === Resumen de Cruce con Base de Datos ({db_path}) ===")
     print(f"  • Total vehículos auditados en Excel: {n_total}")
