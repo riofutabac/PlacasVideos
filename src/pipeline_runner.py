@@ -206,33 +206,24 @@ class ALPRPipeline:
             self.motion_gate.notify_vehicle_detected(timestamp)
         return valid_boxes, valid_confs, valid_classes
 
-    def _record_clip_summary(self, clip_id: str, file_hash: str, display_path: str, duration_sec: float, frame_idx: int, events_count: int, started_at_str: str, run_id: str):
+    def _record_clip_summary(self, clip_id: str, file_hash: str, display_path: str, duration_sec: float, frame_idx: int, events_count: int, started_at_str: str, run_id: str, status: str = "COMPLETED"):
         completed_at_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        clip_perf = self.profiler.finish_clip(frame_idx, duration_sec)
+        clip_perf = self.profiler.finish_clip(frame_idx, duration_sec) if status == "COMPLETED" else {'wall_clock_seconds': 0.0, 'speed_ratio': 0.0, 'decode_seconds': 0.0, 'vehicle_detection_seconds': 0.0, 'plate_detection_seconds': 0.0, 'ocr_seconds': 0.0}
         self.db.record_clip(
-            clip_id=clip_id,
-            run_id=run_id,
-            file_path=display_path,
-            file_hash=file_hash,
-            duration_sec=duration_sec,
-            total_frames=frame_idx,
-            events_count=events_count,
-            status="COMPLETED",
-            started_at=started_at_str,
-            completed_at=completed_at_str,
-            wall_clock_seconds=clip_perf['wall_clock_seconds'],
-            speed_ratio=clip_perf['speed_ratio'],
-            decode_seconds=clip_perf['decode_seconds'],
-            vehicle_detection_seconds=clip_perf['vehicle_detection_seconds'],
-            plate_detection_seconds=clip_perf['plate_detection_seconds'],
-            ocr_seconds=clip_perf['ocr_seconds']
+            clip_id=clip_id, run_id=run_id, file_path=display_path, file_hash=file_hash,
+            duration_sec=duration_sec, total_frames=frame_idx, events_count=events_count, status=status,
+            started_at=started_at_str, completed_at=completed_at_str,
+            wall_clock_seconds=clip_perf['wall_clock_seconds'], speed_ratio=clip_perf['speed_ratio'],
+            decode_seconds=clip_perf['decode_seconds'], vehicle_detection_seconds=clip_perf['vehicle_detection_seconds'],
+            plate_detection_seconds=clip_perf['plate_detection_seconds'], ocr_seconds=clip_perf['ocr_seconds']
         )
-        print(f"Finished {clip_id}: Recorded {events_count} transit events in {clip_perf['wall_clock_seconds']}s ({clip_perf['speed_ratio']}x realtime) [decode: {clip_perf['decode_seconds']}s, yolo: {clip_perf['vehicle_detection_seconds']}s].")
+        if status == "COMPLETED":
+            print(f"Finished {clip_id}: Recorded {events_count} transit events in {clip_perf['wall_clock_seconds']}s ({clip_perf['speed_ratio']}x realtime) [decode: {clip_perf['decode_seconds']}s, yolo: {clip_perf['vehicle_detection_seconds']}s].")
 
     def process_video_file(self, video_path: str, run_id: str, force_reprocess: bool = True, original_path: Optional[str] = None) -> List[Dict]:
         display_path = original_path if original_path else video_path
         clip_id = os.path.basename(display_path)
-        clip_start_dt = get_clip_start_datetime(display_path)
+        clip_start_dt = get_clip_start_datetime(video_path, fallback_filename=display_path)
         started_at_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Starting video processing: {clip_id} (Ref Time: {clip_start_dt.strftime('%Y-%m-%d %H:%M:%S')})")
         
@@ -242,7 +233,12 @@ class ALPRPipeline:
             return []
 
         self.profiler.start_clip()
-        decoder, bgr_buffer, is_nv12, is_dec_cropped, dec_h, dec_w, cx1, cy1, cx2, cy2 = self._init_clip_decoder(video_path)
+        try:
+            decoder, bgr_buffer, is_nv12, is_dec_cropped, dec_h, dec_w, cx1, cy1, cx2, cy2 = self._init_clip_decoder(video_path)
+        except Exception as e:
+            print(f"⚠️ [Corrupted Clip] Skipping {clip_id}: {e}")
+            self._record_clip_summary(clip_id, file_hash, display_path, 0.0, 0, 0, started_at_str, run_id, status="CORRUPTED")
+            return []
         duration_sec = decoder.duration_sec
 
         tracker = sv.ByteTrack(

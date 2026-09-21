@@ -44,15 +44,39 @@ def test_nv12_to_bgr_full_range_conversion():
     assert bgr.shape == (h, w, 3)
     assert bgr.dtype == np.uint8
 
-def test_create_decoder_cpu_backend(tmp_path):
-    # Create empty mock file
-    mock_video = tmp_path / "mock.mp4"
-    mock_video.write_bytes(b"0" * 100)
+def test_check_mp4_has_moov_atom(tmp_path):
+    from src.video_decoder import check_mp4_has_moov_atom
+    # 1. Truncated or missing moov
+    corrupt_mp4 = tmp_path / "corrupt.mp4"
+    corrupt_mp4.write_bytes((16).to_bytes(4, 'big') + b'ftyp' + b'isom\x00\x00\x02\x00' + (100).to_bytes(4, 'big') + b'mdat' + b'1234')
+    assert check_mp4_has_moov_atom(str(corrupt_mp4)) is False
 
-    # Backend 'opencv' should attempt OpenCVDecoder
-    # Since mock.mp4 is invalid video bytes, OpenCVDecoder raises RuntimeError
+    # 2. Valid moov atom present
+    valid_mp4 = tmp_path / "valid.mp4"
+    valid_mp4.write_bytes(
+        (16).to_bytes(4, 'big') + b'ftyp' + b'isom\x00\x00\x02\x00' +
+        (16).to_bytes(4, 'big') + b'mdat' + b'12345678' +
+        (16).to_bytes(4, 'big') + b'moov' + b'head' + b'data'
+    )
+    assert check_mp4_has_moov_atom(str(valid_mp4)) is True
+
+    # 3. Non-mp4 file (e.g. .avi) passes check
+    avi_file = tmp_path / "video.avi"
+    avi_file.write_bytes(b"RIFF" + b"0" * 50)
+    assert check_mp4_has_moov_atom(str(avi_file)) is True
+
+def test_create_decoder_cpu_backend(tmp_path):
+    # Missing moov atom fails fast with ValueError
+    corrupt_mp4 = tmp_path / "corrupt.mp4"
+    corrupt_mp4.write_bytes(b"0" * 100)
+    with pytest.raises(ValueError, match="Corrupted MP4 container"):
+        create_decoder(str(corrupt_mp4), backend="opencv")
+
+    # Non-mp4 invalid file passes container check but fails inside OpenCVDecoder
+    mock_avi = tmp_path / "mock.avi"
+    mock_avi.write_bytes(b"0" * 100)
     with pytest.raises(RuntimeError, match="OpenCV no pudo abrir el archivo de video"):
-        create_decoder(str(mock_video), backend="opencv")
+        create_decoder(str(mock_avi), backend="opencv")
 
 def test_lut_table_properties():
     assert len(_FULL_TO_BT601_Y_LUT) == 256

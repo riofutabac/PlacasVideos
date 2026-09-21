@@ -390,3 +390,39 @@ def test_plate_processor_save_debug_crops_flag(tmp_path):
     assert os.path.exists(debug_dir)
     assert any(f.startswith("EVT_WITH_DEBUG") for f in os.listdir(debug_dir))
 
+def test_vote_plate_characters_never_invents_chimeric_plates():
+    # Clip 3 case: multiple high-conf PBO4275 reads with noisy fragments
+    c_clip3 = [
+        {'text': 'PBO4275', 'ocr_conf': 1.0, 'plate_score': 1.0, 'timestamp': 1.0, 'crop': np.zeros((10, 10))},
+        {'text': 'PBO4275', 'ocr_conf': 1.0, 'plate_score': 1.0, 'timestamp': 2.0, 'crop': np.zeros((10, 10))},
+        {'text': 'POQ4275', 'ocr_conf': 0.75, 'plate_score': 0.8, 'timestamp': 3.0, 'crop': np.zeros((10, 10))},
+        {'text': 'BD4275', 'ocr_conf': 0.60, 'plate_score': 0.6, 'timestamp': 4.0, 'crop': np.zeros((10, 10))},
+    ]
+    plate3, conf3, _, _, _, _ = vote_plate_characters(c_clip3)
+    assert plate3 == "PBO4275"
+    assert plate3 != "PAQ477"
+    assert conf3 == 1.0
+
+    # Clip 26 case: PAE4008 with noisy competing reads
+    c_clip26 = [
+        {'text': 'PAE4008', 'ocr_conf': 1.0, 'plate_score': 1.0, 'timestamp': 1.0, 'crop': np.zeros((10, 10))},
+        {'text': '1000PAE409', 'ocr_conf': 0.70, 'plate_score': 0.7, 'timestamp': 2.0, 'crop': np.zeros((10, 10))},
+        {'text': 'VIL1144', 'ocr_conf': 0.65, 'plate_score': 0.7, 'timestamp': 3.0, 'crop': np.zeros((10, 10))},
+        {'text': 'VVL3144', 'ocr_conf': 0.65, 'plate_score': 0.7, 'timestamp': 4.0, 'crop': np.zeros((10, 10))},
+    ]
+    plate26, conf26, _, _, _, _ = vote_plate_characters(c_clip26)
+    assert plate26 == "PAE4008"
+    assert plate26 != "VAL4144"
+
+    # Clip 55 case: PFB5908 with shifted character reads
+    c_clip55 = [
+        {'text': 'PFB5908', 'ocr_conf': 0.97, 'plate_score': 1.0, 'timestamp': 1.0, 'crop': np.zeros((10, 10))},
+        {'text': 'PFG5908', 'ocr_conf': 0.80, 'plate_score': 0.8, 'timestamp': 2.0, 'crop': np.zeros((10, 10))},
+        {'text': 'FFB5939', 'ocr_conf': 0.70, 'plate_score': 0.7, 'timestamp': 3.0, 'crop': np.zeros((10, 10))},
+        {'text': 'GFB5925', 'ocr_conf': 0.60, 'plate_score': 0.6, 'timestamp': 4.0, 'crop': np.zeros((10, 10))},
+    ]
+    plate55, conf55, _, _, _, _ = vote_plate_characters(c_clip55)
+    assert plate55 == "PFB5908"
+    assert plate55 != "GFB5935"
+
+

@@ -11,8 +11,46 @@ from typing import Generator, Tuple, Optional, Dict, Any
 import numpy as np
 import cv2
 
+def check_mp4_has_moov_atom(file_path: str) -> bool:
+    """
+    Fast-check (<1ms) if an MP4/MOV file contains a valid 'moov' atom box.
+    Avoids 30-second decoder hangs/timeouts on corrupted or unfinalized camera recordings.
+    """
+    if not file_path or not str(file_path).lower().endswith(('.mp4', '.mov')):
+        return True
+    try:
+        file_size = os.path.getsize(file_path)
+        if file_size < 16:
+            return False
+        with open(file_path, "rb") as f:
+            offset = 0
+            while offset < file_size:
+                f.seek(offset)
+                header = f.read(8)
+                if len(header) < 8:
+                    break
+                atom_size = int.from_bytes(header[0:4], byteorder="big")
+                atom_type = header[4:8]
+                if atom_type == b"moov":
+                    return True
+                if atom_size == 0:
+                    break
+                elif atom_size == 1:
+                    ext_header = f.read(8)
+                    if len(ext_header) < 8:
+                        break
+                    atom_size = int.from_bytes(ext_header, byteorder="big")
+                if atom_size < 8:
+                    break
+                offset += atom_size
+        return False
+    except Exception:
+        return True
+
 def probe_video_metadata(video_path: str) -> Dict[str, Any]:
     """Probes video metadata (codec, width, height, fps, total_frames, pix_fmt, color_range) using ffprobe."""
+    if not check_mp4_has_moov_atom(video_path):
+        raise ValueError(f"Corrupted MP4 container (missing 'moov' atom): {video_path}")
     cmd = [
         "ffprobe", "-v", "error",
         "-select_streams", "v:0",

@@ -175,4 +175,66 @@ def test_pipeline_microbenchmarks(monkeypatch):
     # Test run_microbenchmarks runs without exceptions
     run_microbenchmarks()
 
+def test_build_gt_candidates_matching_logic(tmp_path):
+    import sqlite3
+    from benchmarks.build_gt_candidates import match_with_database
+    from src.db_manager import DatabaseManager
+
+    db_file = str(tmp_path / "test_events.sqlite")
+    db = DatabaseManager(db_file)
+
+    # Insert test events
+    with db._get_connection() as conn:
+        conn.execute("""
+            INSERT INTO events (
+                event_id, processing_run_id, video_source, clip_hash, event_timestamp,
+                datetime_str, direction, vehicle_type, plate_raw, plate_normalized,
+                plate_corrected, plate_status, confidence_vehicle, confidence_ocr,
+                vehicle_crop_path, track_id, line_id
+            ) VALUES
+            ('EVT_1', 'RUN_1', 'clip1.mp4', 'h1', 10.0, '2026-09-09 11:07:05', 'ENTRADA', 'truck', 'PBO4275', 'PBO4275', 'PBO4275', 'VALID', 0.95, 0.99, 'crop1.jpg', 1, 'L1'),
+            ('EVT_2', 'RUN_1', 'clip2.mp4', 'h2', 20.0, '2026-09-09 11:28:10', 'ENTRADA', 'truck', 'PAC7438', 'PAC7438', 'PAC7438', 'VALID', 0.90, 0.85, 'crop2.jpg', 2, 'L1'),
+            ('EVT_3', 'RUN_1', 'clip3.mp4', 'h3', 30.0, '2026-09-09 16:00:00', 'ENTRADA', 'car', 'FAR1234', 'FAR1234', 'FAR1234', 'VALID', 0.90, 0.90, 'crop3.jpg', 3, 'L1')
+        """)
+        conn.commit()
+
+    audit_entries = [
+        # Exact match
+        {"plate_text": "PBO4275", "vehicle_type": "truck", "province": "Pichincha", "note": "", "time_cam1": None, "time_cam2": "11:07:00"},
+        # Time window match (PAC7438 detected at 11:28:10 vs PAC7437 audited at 11:28:00)
+        {"plate_text": "PAC7437", "vehicle_type": "truck", "province": "Pichincha", "note": "", "time_cam1": None, "time_cam2": "11:28:00"},
+        # Exact plate fallback (FAR1234 audited at 12:00:00, but detected at 16:00:00 - outside 3min tolerance)
+        {"plate_text": "FAR1234", "vehicle_type": "car", "province": "Pichincha", "note": "", "time_cam1": None, "time_cam2": "12:00:00"},
+        # No match
+        {"plate_text": "NOT9999", "vehicle_type": "car", "province": "Pichincha", "note": "", "time_cam1": None, "time_cam2": "10:00:00"}
+    ]
+
+    candidates = match_with_database(audit_entries, db_path=db_file, tolerance_minutes=3.0)
+    assert len(candidates) == 4
+
+    # 1. Exact match
+    c0 = candidates[0]
+    assert c0["match_type"] == "EXACT_PLATE_AND_TIME"
+    assert c0["matched_event_id"] == "EVT_1"
+    assert c0["time_diff_sec"] == 5.0
+    assert c0["pipeline_detected_plate"] == "PBO4275"
+
+    # 2. Time window match
+    c1 = candidates[1]
+    assert c1["match_type"] == "TIME_WINDOW"
+    assert c1["matched_event_id"] == "EVT_2"
+    assert c1["time_diff_sec"] == 10.0
+    assert c1["pipeline_detected_plate"] == "PAC7438"
+
+    # 3. Exact plate fallback
+    c2 = candidates[2]
+    assert c2["match_type"] == "EXACT_PLATE_FALLBACK"
+    assert c2["matched_event_id"] == "EVT_3"
+    assert c2["pipeline_detected_plate"] == "FAR1234"
+
+    # 4. No match
+    c3 = candidates[3]
+    assert c3["match_type"] is None
+    assert c3["matched_event_id"] is None
+
 

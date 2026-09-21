@@ -2,7 +2,7 @@
 Factory module for initializing appropriate video decoder instances based on configuration and hardware availability.
 """
 from typing import Optional, Dict, Any
-from .base import BaseVideoDecoder
+from .base import BaseVideoDecoder, check_mp4_has_moov_atom
 from .opencv_decoder import OpenCVDecoder
 from .nvdec_decoder import NVDECDecoder, check_nvdec_available
 
@@ -19,6 +19,9 @@ def create_decoder(
     crop_rect: Optional bounding rect dict {'x_min', 'y_min', 'x_max', 'y_max'}
     queue_size: Queue buffer depth for threaded producer
     """
+    if not check_mp4_has_moov_atom(video_path):
+        raise ValueError(f"Corrupted MP4 container (missing 'moov' atom): {video_path}")
+
     backend_clean = (backend or "auto").lower().strip()
 
     if backend_clean == "auto":

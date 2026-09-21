@@ -16,6 +16,7 @@ from src.pipeline_types import VehicleFrameCandidate
 from src.quality_ranker import QualityRanker
 from src.timer_profiler import PipelineProfiler
 from src.ecuador_plate_validator import PROVINCE_CODES
+from src.deduplicator import levenshtein_distance
 
 logger = logging.getLogger(__name__)
 
@@ -25,10 +26,9 @@ def vote_plate_characters(
     manual_review_threshold: float = 0.0
 ) -> Tuple[Optional[str], float, Optional[np.ndarray], Optional[float], float, bool]:
     """
-    Performs character-level weighted voting across multiple OCR candidate reads.
-    Ponders each character vote by its character confidence, crop quality score,
-    a gentle prior boost if conforming to valid Ecuadorian plate formats,
-    and optional soft Pichincha preference on the first character.
+    Selects winning plate strictly from real OCR candidate reads (never invents chimeras).
+    Scores each unique candidate read by direct evidence (confidence * quality * format prior)
+    plus cross-agreement support from other reads within Levenshtein distance <= 2.
     Returns:
         (consensus_text, consensus_conf, best_crop, best_timestamp, best_det_conf, needs_manual_review)
     """
@@ -40,28 +40,18 @@ def vote_plate_characters(
         raw_text = c.get('text', '')
         clean_t = "".join(ch for ch in raw_text if ch.isalnum()).upper()
         if clean_t:
-            confs = c.get('char_confs')
-            if not confs or len(confs) != len(raw_text):
-                confs = [c.get('ocr_conf', 0.5)] * len(clean_t)
-            else:
-                confs = [conf for ch, conf in zip(raw_text, confs) if ch.isalnum()]
-            if len(confs) != len(clean_t):
-                confs = [c.get('ocr_conf', 0.5)] * len(clean_t)
-
-            # Step 3: Prior boost if candidate matches Ecuadorian format
             prior_boost = 0.0
             if re.match(r'^[A-Z]{3}[0-9]{3,4}$', clean_t):
-                prior_boost += 0.10
+                prior_boost += 0.15
                 if clean_t[0] in PROVINCE_CODES:
                     prior_boost += 0.05
             elif re.match(r'^[A-Z]{2}[0-9]{3}[A-Z]$', clean_t):
-                prior_boost += 0.10
+                prior_boost += 0.15
                 if clean_t[0] in PROVINCE_CODES:
                     prior_boost += 0.05
 
             valid.append({
                 'clean_text': clean_t,
-                'char_confs': confs,
                 'plate_score': c.get('plate_score', 1.0) + prior_boost,
                 'ocr_conf': c.get('ocr_conf', 0.5),
                 'det_conf': c.get('det_conf', 0.0),
@@ -76,60 +66,46 @@ def vote_plate_characters(
         v0 = valid[0]
         return v0['clean_text'], v0['ocr_conf'], v0['crop'], v0['timestamp'], v0['det_conf'], False
 
-    # 1. Determine modal length (prefer standard 7 and 6 char lengths on ties)
-    lengths = [len(v['clean_text']) for v in valid]
-    counts = Counter(lengths)
-    modal_len = max(counts.keys(), key=lambda l: (counts[l], 2 if l == 7 else (1 if l == 6 else 0)))
+    unique_texts = list(set(v['clean_text'] for v in valid))
+    scores: Dict[str, float] = {}
 
-    modal_cands = [v for v in valid if len(v['clean_text']) == modal_len]
-    if not modal_cands:
-        modal_cands = valid
-        modal_len = len(modal_cands[0]['clean_text'])
+    for text in unique_texts:
+        instances = [v for v in valid if v['clean_text'] == text]
+        direct_w = sum(inst['ocr_conf'] * max(0.1, inst['plate_score']) for inst in instances)
+        if province_prior_p > 0.0 and text.startswith('P'):
+            direct_w += province_prior_p * len(instances)
 
-    # 2. Position by position weighted voting
-    consensus_chars = []
-    consensus_char_confs = []
+        cross_w = 0.0
+        for other in valid:
+            o_text = other['clean_text']
+            if o_text == text:
+                continue
+            dist = levenshtein_distance(text, o_text)
+            if dist <= 2:
+                sim = 1.0 - (dist / max(len(text), len(o_text)))
+                cross_w += (other['ocr_conf'] * max(0.1, other['plate_score'])) * (sim ** 2) * 0.5
+
+        scores[text] = direct_w + cross_w
+
+    ranked = sorted(scores.items(), key=lambda x: (x[1], x[0]), reverse=True)
+    winner_text, winner_score = ranked[0]
+
+    runner_up = ranked[1] if len(ranked) > 1 else None
     needs_manual_review = False
-
-    for pos in range(modal_len):
-        pos_votes: Dict[str, float] = {}
-        char_raw_confs: Dict[str, List[float]] = {}
-
-        for cand in modal_cands:
-            char = cand['clean_text'][pos]
-            c_conf = cand['char_confs'][pos] if pos < len(cand['char_confs']) else cand['ocr_conf']
-            weight = c_conf * max(0.1, cand['plate_score'])
-
-            # A2: Soft Pichincha prior on pos 0
-            if pos == 0 and char == 'P' and province_prior_p > 0.0:
-                weight += province_prior_p
-
-            pos_votes[char] = pos_votes.get(char, 0.0) + weight
-            char_raw_confs.setdefault(char, []).append(c_conf)
-
-        sorted_votes = sorted(pos_votes.items(), key=lambda x: x[1], reverse=True)
-        winning_char = sorted_votes[0][0]
-
-        # Check manual review threshold on first character if multiple candidates competed
-        if pos == 0 and manual_review_threshold > 0.0 and len(sorted_votes) > 1:
-            diff = sorted_votes[0][1] - sorted_votes[1][1]
+    if runner_up and manual_review_threshold > 0.0:
+        r_text, r_score = runner_up
+        diff = winner_score - r_score
+        if len(winner_text) > 0 and len(r_text) > 0 and winner_text[0] != r_text[0]:
             if diff < manual_review_threshold:
                 needs_manual_review = True
+        elif diff < (manual_review_threshold * 0.5):
+            needs_manual_review = True
 
-        consensus_chars.append(winning_char)
-        avg_winning_conf = sum(char_raw_confs[winning_char]) / len(char_raw_confs[winning_char])
-        consensus_char_confs.append(avg_winning_conf)
+    winner_instances = [v for v in valid if v['clean_text'] == winner_text]
+    best_cand = max(winner_instances, key=lambda v: (v['plate_score'], v['ocr_conf']))
+    consensus_conf = float(np.mean([v['ocr_conf'] for v in winner_instances]))
 
-    consensus_text = "".join(consensus_chars)
-    consensus_conf = float(np.mean(consensus_char_confs)) if consensus_char_confs else 0.0
-
-    # Best crop corresponds to candidate with highest agreement with consensus text
-    best_cand = max(modal_cands, key=lambda c: (
-        sum(1 for a, b in zip(c['clean_text'], consensus_text) if a == b),
-        c['ocr_conf']
-    ))
-
-    return consensus_text, consensus_conf, best_cand['crop'], best_cand['timestamp'], best_cand['det_conf'], needs_manual_review
+    return winner_text, consensus_conf, best_cand['crop'], best_cand['timestamp'], best_cand['det_conf'], needs_manual_review
 
 def try_two_tier_ocr(
     alpr: ALPR,

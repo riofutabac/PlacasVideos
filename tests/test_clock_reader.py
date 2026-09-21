@@ -54,3 +54,18 @@ def test_read_real_clip_if_available():
         dt = read_clip_start_datetime(clip60)
         assert dt is not None
         assert dt == datetime(2026, 9, 9, 16, 17, 16)
+
+def test_get_clip_start_datetime_unnumbered_initial_clip():
+    # Clip 0 without index in parentheses should derive export start time (10:56:51), NOT 16:00:00
+    dt_init = get_clip_start_datetime("Camara Placas 2_20260909105651-20260909163038.mp4")
+    assert isinstance(dt_init, datetime)
+    assert dt_init == datetime(2026, 9, 9, 10, 56, 51)
+
+def test_get_clip_start_datetime_fallback_filename():
+    # When local path is temporary scratch name, fallback_filename is parsed
+    dt_fallback = get_clip_start_datetime(
+        "/tmp/scratch_clip.mp4",
+        fallback_filename="Camara Placas 2_20260909105651-20260909163038(61).mp4"
+    )
+    assert isinstance(dt_fallback, datetime)
+    assert dt_fallback == datetime(2026, 9, 9, 16, 22, 46)

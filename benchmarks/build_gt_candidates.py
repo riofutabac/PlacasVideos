@@ -20,6 +20,7 @@ from typing import List, Dict, Any, Optional
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.ecuador_plate_validator import PROVINCE_CODES
 from src.pipeline_types import get_clip_start_datetime
+from src.deduplicator import levenshtein_distance
 
 def parse_time_cell(val: Any) -> Optional[time]:
     if isinstance(val, time):
@@ -76,6 +77,22 @@ def load_audit_excel(excel_path: str = "Revisión bypass Pintag.xlsx") -> List[
 
     return entries
 
+def get_event_datetime(evt: Dict[str, Any]) -> Optional[datetime]:
+    """Extracts datetime from event record, preferring OSD datetime_str with extrapolation fallback."""
+    dt_str = evt.get("datetime_str")
+    if dt_str:
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f"):
+            try:
+                return datetime.strptime(str(dt_str).strip(), fmt)
+            except ValueError:
+                pass
+    v_src = evt.get("video_source") or ""
+    ts = float(evt.get("event_timestamp") or 0.0)
+    try:
+        return get_clip_start_datetime(v_src) + timedelta(seconds=ts)
+    except Exception:
+        return None
+
 def match_with_database(
     audit_entries: List[Dict[str, Any]],
     db_path: str = "data/events.sqlite",
@@ -95,6 +112,8 @@ def match_with_database(
     for idx, audit in enumerate(audit_entries):
         plate = audit["plate_text"]
         t2_val = parse_time_cell(audit.get("time_cam2"))
+        t1_val = parse_time_cell(audit.get("time_cam1"))
+        t_ref = t2_val or t1_val
 
         cand_entry = {
             "ground_truth_id": f"GT_CAND_{idx+1:03d}",
@@ -116,33 +135,44 @@ def match_with_database(
             "confidence_ocr": None
         }
 
-        # Match strategy:
-        # 1. First priority: temporal proximity to audit_time_cam2 (camera 2 ground truth time) + plate/type match
-        # 2. Second priority: exact plate match (fallback if timestamp not available or test database)
         best_match = None
-        best_diff = 999999.0
+        best_diff = None
         match_type = None
 
-        if t2_val is not None:
-            audit_dt = datetime(2026, 9, 9, t2_val.hour, t2_val.minute, t2_val.second)
+        if t_ref is not None and db_events:
+            exact_matches = []
+            window_matches = []
+
             for evt in db_events:
-                v_src = evt.get("video_source") or ""
-                ts = float(evt.get("event_timestamp") or 0.0)
-                evt_dt = get_clip_start_datetime(v_src) + timedelta(seconds=ts)
+                evt_dt = get_event_datetime(evt)
+                if evt_dt is None:
+                    continue
+                audit_dt = datetime(evt_dt.year, evt_dt.month, evt_dt.day, t_ref.hour, t_ref.minute, t_ref.second)
                 diff = abs((evt_dt - audit_dt).total_seconds())
                 det_p = (evt.get("plate_corrected") or evt.get("plate_normalized") or "").strip().upper()
+
                 if diff <= tolerance_minutes * 60:
                     if det_p == plate:
-                        best_match = evt
-                        best_diff = diff
-                        match_type = "EXACT_PLATE_AND_TIME"
-                        break
-                    elif diff < best_diff:
-                        best_match = evt
-                        best_diff = diff
-                        match_type = "TIME_WINDOW"
+                        exact_matches.append((diff, evt))
+                    else:
+                        window_matches.append((diff, evt))
 
-        if not best_match:
+            if exact_matches:
+                exact_matches.sort(key=lambda x: x[0])
+                best_diff, best_match = exact_matches[0]
+                match_type = "EXACT_PLATE_AND_TIME"
+            elif window_matches:
+                # Prioritize OCR similarity within the window, then smallest time difference
+                def _window_sort_key(item):
+                    diff, evt = item
+                    p_read = (evt.get("plate_corrected") or evt.get("plate_normalized") or "").strip().upper()
+                    dist = levenshtein_distance(plate, p_read) if p_read else 99
+                    return (dist, diff)
+                window_matches.sort(key=_window_sort_key)
+                best_diff, best_match = window_matches[0]
+                match_type = "TIME_WINDOW"
+
+        if not best_match and db_events:
             for evt in db_events:
                 det_p = (evt.get("plate_corrected") or evt.get("plate_normalized") or "").strip().upper()
                 if det_p == plate:
@@ -154,10 +184,10 @@ def match_with_database(
         if best_match:
             cand_entry["matched_event_id"] = best_match.get("event_id")
             cand_entry["match_type"] = match_type
-            cand_entry["time_diff_sec"] = round(best_diff, 2) if best_diff is not None and best_diff < 999999 else None
+            cand_entry["time_diff_sec"] = round(best_diff, 2) if best_diff is not None else None
             cand_entry["video_source"] = best_match.get("video_source")
             cand_entry["approx_timestamp"] = best_match.get("event_timestamp")
-            cand_entry["pipeline_detected_plate"] = best_match.get("plate_corrected")
+            cand_entry["pipeline_detected_plate"] = best_match.get("plate_corrected") or best_match.get("plate_normalized")
             cand_entry["vehicle_crop_path"] = best_match.get("vehicle_crop_path")
             cand_entry["plate_crop_path"] = best_match.get("plate_crop_path")
             cand_entry["confidence_ocr"] = best_match.get("confidence_ocr")
@@ -175,14 +205,39 @@ def build_ground_truth_candidates(
     print(f"📋 [GT Builder] Leídas {len(audit_entries)} placas auditadas del Excel.")
 
     candidates = match_with_database(audit_entries, db_path)
-    matched_count = sum(1 for c in candidates if c["matched_event_id"])
-    print(f"🔗 [GT Builder] {matched_count}/{len(candidates)} eventos cruzados con la base de datos local.")
+    n_total = len(candidates)
+    n_exact = sum(1 for c in candidates if c["match_type"] == "EXACT_PLATE_AND_TIME")
+    n_window = sum(1 for c in candidates if c["match_type"] == "TIME_WINDOW")
+    n_fallback = sum(1 for c in candidates if c["match_type"] == "EXACT_PLATE_FALLBACK")
+    n_missed = sum(1 for c in candidates if not c["matched_event_id"])
+    n_matched = n_exact + n_window + n_fallback
+
+    print(f"\n📊 === Resumen de Cruce con Base de Datos ({db_path}) ===")
+    print(f"  • Total vehículos auditados: {n_total}")
+    print(f"  • Coincidencia Exacta (Placa + Hora): {n_exact} ({n_exact/n_total*100:.1f}%)")
+    print(f"  • Coincidencia Ventana Temporal (Candidato/Lectura OCR): {n_window} ({n_window/n_total*100:.1f}%)")
+    print(f"  • Coincidencia Exacta Fuera de Ventana: {n_fallback} ({n_fallback/n_total*100:.1f}%)")
+    print(f"  • No encontrados / Sin cruce: {n_missed} ({n_missed/n_total*100:.1f}%)")
+    print(f"  • Total asociados a eventos: {n_matched} ({n_matched/n_total*100:.1f}%)\n")
+
+    print(f"{'#':<4} {'Placa GT':<9} {'Tipo':<7} {'Hora Cam2':<10} {'Tipo Match':<22} {'Placa Pipeline':<15} {'Diff (s)':<9} {'Conf OCR':<8}")
+    print("-" * 88)
+    for c in candidates:
+        gid = c["ground_truth_id"].replace("GT_CAND_", "")
+        plt_gt = c["plate_text"]
+        v_type = c["vehicle_type"][:6]
+        h_cam2 = c["audit_time_cam2"] or c["audit_time_cam1"] or "--:--:--"
+        m_type = c["match_type"] or "NO_MATCH"
+        p_pipe = c["pipeline_detected_plate"] or "-"
+        diff_s = f"{c['time_diff_sec']}s" if c["time_diff_sec"] is not None else "-"
+        conf_o = f"{c['confidence_ocr']:.2f}" if c["confidence_ocr"] is not None else "-"
+        print(f"{gid:<4} {plt_gt:<9} {v_type:<7} {h_cam2:<10} {m_type:<22} {p_pipe:<15} {diff_s:<9} {conf_o:<8}")
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(candidates, f, indent=2, ensure_ascii=False)
 
-    print(f"💾 [GT Builder] Borrador de Ground Truth guardado en {output_path}")
+    print(f"\n💾 [GT Builder] Borrador de Ground Truth guardado en {output_path}")
     return candidates
 
 def main():
