@@ -67,10 +67,8 @@ def inspect_video(video_path, output_dir):
                 # Bottom contact point of vehicle
                 bottom_center = ((fx1 + fx2) // 2, fy2)
                 
-                # Exclude the static parked white van at bottom-left:
-                # Parked van sits at x < 500, y > 1200
-                if fx1 < 500 and fy2 > 1300 and (fx2 - fx1) > 300:
-                    # Static parked van at camera base, ignore
+                # Exclude stationary parked van on far bottom-left curb (x <= 460)
+                if fx2 <= 460 and fy2 > 1200:
                     continue
                     
                 if point_in_polygon(bottom_center, POLYGON):

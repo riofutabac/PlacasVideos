@@ -158,3 +158,28 @@ def test_detect_and_filter_vehicles_runs_postprocess(pipeline):
 
     assert boxes == [box_in_gravel]
     assert confs == [0.9] and classes == [2]
+
+
+def test_detect_and_filter_vehicles_preserves_large_trucks_in_salida(pipeline):
+    """Regression: trucks crossing in SALIDA (e.g. PAB3439, PAB7630) must not be killed by parked van filter."""
+    # Truck in SALIDA: fx1=438, fy1=600, fx2=1661, fy2=1349 (ROI: [138, 0, 1361, 749])
+    truck_salida_box = [138.0, 0.0, 1361.0, 749.0]
+    # Parked van on curb: fx1=300, fy1=850, fx2=420, fy2=1638 (ROI: [0.0, 250.0, 120.0, 1038.0])
+    parked_van_box = [0.0, 250.0, 120.0, 1038.0]
+
+    pipeline.vehicle_runner = MagicMock()
+    pipeline.vehicle_runner.predict.return_value = (
+        [truck_salida_box, parked_van_box],
+        [0.85, 0.40],
+        [7, 2],  # truck, car
+        {}
+    )
+
+    boxes, confs, classes = pipeline._detect_and_filter_vehicles(
+        np.zeros((1064, 2300, 3), dtype=np.uint8), 300, 600, timestamp=10.0
+    )
+
+    # Truck must be kept, parked van must be filtered out
+    assert boxes == [truck_salida_box]
+    assert confs == [0.85] and classes == [7]
+

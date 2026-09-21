@@ -194,7 +194,8 @@ class ALPRPipeline:
         valid_boxes, valid_confs, valid_classes = [], [], []
         for (rx1, ry1, rx2, ry2), conf, cls_id in zip(raw_boxes, raw_confs, raw_classes):
             fx1, fy1, fx2, fy2 = int(rx1 + cx1), int(ry1 + cy1), int(rx2 + cx1), int(ry2 + cy1)
-            if fx1 < 500 and fy2 > 1300 and (fx2 - fx1) > 300:
+            # Exclude stationary parked van on far bottom-left curb (x <= 460)
+            if fx2 <= 460 and fy2 > 1200:
                 continue
             if self.is_point_in_gravel(((fx1 + fx2) // 2, fy2)):
                 valid_boxes.append([rx1, ry1, rx2, ry2])

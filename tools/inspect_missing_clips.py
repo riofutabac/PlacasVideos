@@ -18,7 +18,7 @@ CASES = [
         'clip_name': 'Camara Placas 2_20260909105651-20260909163038(31).mp4',
         'target_time_str': '13:39:00',
         'start_sec': 30.0,
-        'end_sec': 110.0,
+        'end_sec': 160.0,
         'output_name': 'forense_PAZ1513_clip31.jpg'
     },
     {
