@@ -382,7 +382,8 @@ class PlateProcessor:
         """Saves vehicle and plate evidence images to disk."""
         self.profiler.start_stage('image_write')
         veh_path = os.path.join(self.vehicle_evidence_dir, f"{event_id}_veh.jpg")
-        cv2.imwrite(veh_path, best_veh_crop)
+        if best_veh_crop is not None and best_veh_crop.size > 0:
+            cv2.imwrite(veh_path, best_veh_crop)
         plate_path = None
         if plate_crop is not None and plate_crop.size > 0:
             plate_path = os.path.join(self.plate_evidence_dir, f"{event_id}_plate.jpg")

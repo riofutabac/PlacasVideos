@@ -132,14 +132,15 @@ def update_tracks_and_fsm(
         # Only extract crop & rank if track has not yet been emitted
         if not state.has_emitted:
             veh_crop_view = crop_roi[max(0, int(ry1)):min(crop_roi.shape[0], int(ry2)), max(0, int(rx1)):min(crop_roi.shape[1], int(ry2))]
-            q_score = ranker.score_vehicle_frame(
-                vehicle_crop=veh_crop_view,
-                bbox=(fx1, fy1, fx2, fy2),
-                frame_shape=(full_h, full_w),
-                detector_confidence=conf
-            )
-            cand = VehicleFrameCandidate(score=q_score, timestamp=timestamp, vehicle_crop=veh_crop_view.copy(), bbox_in_full_frame=(fx1, fy1, fx2, fy2))
-            insert_vehicle_candidate(state.best_vehicle_frames, cand, top_m_frames, min_frame_separation_seconds)
+            if veh_crop_view.size > 0:
+                q_score = ranker.score_vehicle_frame(
+                    vehicle_crop=veh_crop_view,
+                    bbox=(fx1, fy1, fx2, fy2),
+                    frame_shape=(full_h, full_w),
+                    detector_confidence=conf
+                )
+                cand = VehicleFrameCandidate(score=q_score, timestamp=timestamp, vehicle_crop=veh_crop_view.copy(), bbox_in_full_frame=(fx1, fy1, fx2, fy2))
+                insert_vehicle_candidate(state.best_vehicle_frames, cand, top_m_frames, min_frame_separation_seconds)
 
         profiler.start_stage('crossing_fsm')
         fsm.update_track(state, contact_pt, timestamp)
