@@ -348,3 +348,45 @@ def test_detect_plate_candidates_save_manifest(tmp_path):
 
     manifest_file = proc.write_manifest()
     assert os.path.exists(manifest_file)
+
+def test_plate_processor_save_debug_crops_flag(tmp_path):
+    mock_alpr = MagicMock()
+    class DummyOCRRes:
+        def __init__(self, text):
+            self.text = text
+            self.confidence = [0.9] * len(text)
+    mock_alpr.ocr.predict.return_value = DummyOCRRes("PCW2492")
+
+    ranker = QualityRanker()
+    profiler = PipelineProfiler()
+    veh_dir = str(tmp_path / "vehicles")
+    plate_dir = str(tmp_path / "plates")
+
+    candidate = {
+        "crop": np.zeros((30, 60, 3), dtype=np.uint8),
+        "plate_bbox": (10, 10, 70, 40),
+        "det_conf": 0.95,
+        "timestamp": 10.0,
+        "score": 0.9
+    }
+
+    # Case 1: save_debug_crops is False -> debug dir should not exist or be empty
+    proc_no_debug = PlateProcessor(
+        alpr=mock_alpr, ranker=ranker, profiler=profiler,
+        vehicle_evidence_dir=veh_dir, plate_evidence_dir=plate_dir,
+        save_debug_crops=False
+    )
+    proc_no_debug.recognize_plate_candidates([candidate], event_id="EVT_NO_DEBUG")
+    debug_dir = os.path.join(plate_dir, "debug")
+    assert not os.path.exists(debug_dir) or len(os.listdir(debug_dir)) == 0
+
+    # Case 2: save_debug_crops is True -> candidate crop written to debug dir
+    proc_debug = PlateProcessor(
+        alpr=mock_alpr, ranker=ranker, profiler=profiler,
+        vehicle_evidence_dir=veh_dir, plate_evidence_dir=plate_dir,
+        save_debug_crops=True
+    )
+    proc_debug.recognize_plate_candidates([candidate], event_id="EVT_WITH_DEBUG")
+    assert os.path.exists(debug_dir)
+    assert any(f.startswith("EVT_WITH_DEBUG") for f in os.listdir(debug_dir))
+

@@ -183,6 +183,7 @@ class PlateProcessor:
         vehicle_evidence_dir: str = "evidence/vehicles",
         plate_evidence_dir: str = "evidence/plates",
         save_manifest: bool = False,
+        save_debug_crops: bool = False,
         province_prior: Optional[Dict[str, Any]] = None
     ):
         self.alpr = alpr
@@ -192,6 +193,7 @@ class PlateProcessor:
         self.vehicle_evidence_dir = vehicle_evidence_dir
         self.plate_evidence_dir = plate_evidence_dir
         self.save_manifest = save_manifest
+        self.save_debug_crops = save_debug_crops
         self.manifest_records: List[Dict[str, Any]] = []
         self.last_needs_manual_review = False
 
@@ -342,14 +344,15 @@ class PlateProcessor:
                         plate_raw, ocr_conf, plate_conf = best['text'], best['ocr_conf'], best['det_conf']
                         plate_crop, best_plate_ts = best['crop'], best['timestamp']
 
-                # Debug: save all candidate crops to evidence/plates/debug/
-                debug_dir = os.path.join(self.plate_evidence_dir, "debug")
-                os.makedirs(debug_dir, exist_ok=True)
-                evt_prefix = event_id if event_id else "candidate"
-                for idx, r in enumerate(scored_ocr):
-                    clean_text = "".join(c for c in r['text'] if c.isalnum())
-                    cand_filename = f"{evt_prefix}_rank{idx}_{clean_text}_c{int(r['ocr_conf']*100)}.jpg"
-                    cv2.imwrite(os.path.join(debug_dir, cand_filename), r['crop'])
+                # Debug: save candidate crops only if explicitly enabled
+                if self.save_debug_crops:
+                    debug_dir = os.path.join(self.plate_evidence_dir, "debug")
+                    os.makedirs(debug_dir, exist_ok=True)
+                    evt_prefix = event_id if event_id else "candidate"
+                    for idx, r in enumerate(scored_ocr):
+                        clean_text = "".join(c for c in r['text'] if c.isalnum())
+                        cand_filename = f"{evt_prefix}_rank{idx}_{clean_text}_c{int(r['ocr_conf']*100)}.jpg"
+                        cv2.imwrite(os.path.join(debug_dir, cand_filename), r['crop'])
 
                 cand_summary = " | ".join(f"{r['text']} (c={r['ocr_conf']:.2f}, s={r['plate_score']:.2f})" for r in scored_ocr)
                 rev_flag = " [REVISION_MANUAL]" if self.last_needs_manual_review else ""

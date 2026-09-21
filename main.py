@@ -306,12 +306,12 @@ def run_full_pipeline():
         include_duplicates=False
     )
     # Also save as latest
-    exporter.export_report(
-        output_path="reports/reporte_auditoria.xlsx",
-        run_id=run_id,
-        include_duplicates=False
-    )
-    print(f"✅ Reporte listo para auditoría: {excel_path}")
+    latest_excel_path = "reports/reporte_auditoria.xlsx"
+    try:
+        shutil.copyfile(excel_path, latest_excel_path)
+    except Exception as e:
+        print(f"⚠️ No se pudo copiar a {latest_excel_path}: {e}")
+    print(f"✅ Reporte listo para auditoría: {excel_path} (y actualizado en {latest_excel_path})")
 
     # Evaluate against Ground Truth if applicable
     try:

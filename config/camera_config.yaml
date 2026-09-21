@@ -77,6 +77,7 @@ quality_ranking:
   min_frame_separation_seconds: 0.0   # 0.0 = comportamiento actual (sin filtro de diversidad)
   top_k_plate_crops: 7
   save_candidate_manifest: false
+  save_debug_crops: false             # false = evita escribir recortes JPEG intermedios de debug
   weights_vehicle:
     sharpness: 0.35
     area: 0.35

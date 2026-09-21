@@ -134,6 +134,7 @@ class ALPRPipeline:
             vehicle_evidence_dir=self.cfg.get('storage', {}).get('vehicles_dir', 'evidence/vehicles'),
             plate_evidence_dir=self.cfg.get('storage', {}).get('plates_dir', 'evidence/plates'),
             save_manifest=self.cfg.get('quality_ranking', {}).get('save_candidate_manifest', False),
+            save_debug_crops=self.cfg.get('quality_ranking', {}).get('save_debug_crops', False),
             province_prior=m_ocr.get('province_prior', {})
         )
 
