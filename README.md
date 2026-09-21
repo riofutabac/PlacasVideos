@@ -114,17 +114,20 @@ python main.py --decoder opencv   # CPU fallback
 
 El pipeline soporta arquitecturas modernas de visión por computador según el hardware de despliegue:
 
-| Característica | `yolov8n.onnx` (Recomendado GPU) | `yolo26n.onnx` (Recomendado CPU) |
+El modelo por defecto es **`yolov8n.onnx`**. Se evaluó `yolo26n.onnx` sobre los clips de
+referencia (`*(60).mp4` y `*(61).mp4`) en Tesla T4 y resultó peor en el pipeline completo:
+
+| Característica (medido en T4, 18-sep-2026) | `yolov8n.onnx` (por defecto) | `yolo26n.onnx` |
 | :--- | :---: | :---: |
-| **Latencia en GPU NVIDIA T4** | **6.07 ms** (164.7 FPS) 🏆 | 6.81 ms (146.9 FPS) |
-| **Latencia en CPU Intel Xeon** | 22.59 ms (44.3 FPS) | **15.34 ms** (65.2 FPS) 🏆 (+32%) |
-| **Exactitud exacta de placas (Exact Match)** | **33.3%** (2/6 base) / **50.0%** (3/6 calib.) 🏆 | 33.3% (vibración de caja) |
-| **Exactitud de caracteres (Honesta s/41)** | **75.6% (31/41 caracteres)** 🏆 | 70.7% (29/41 caracteres) |
-| **Acierto del primer carácter (Provincia)** | **50.0% (3/6 legibles)** 🏆 | 33.3% (2/6 legibles) |
-| **Placas legibles sin lectura (Unread)** | **1/6 (TAA2204)** | 2/6 |
+| **Recall de eventos** | **100% (8/8)** 🏆 | 100% (8/8) |
 | **Dirección de cruce** | **100% (8/8)** 🏆 | 87.5% (7/8) |
-| **Recall de Eventos (Vehículos)** | **100% (8/8)** 🏆 | **100% (8/8)** 🏆 (con 1 falso positivo) |
+| **Falsos positivos** | **0** 🏆 | 1 |
+| **Velocidad del pipeline completo** | **6.46× tiempo real** 🏆 | 4.17× tiempo real |
 | **Tamaño de archivo** | 12.4 MB | **9.6 MB** 🏆 |
+
+> `yolo26n` es más rápido que `yolov8n` en inferencia aislada sobre CPU, pero esa ventaja no se
+> traduce al pipeline completo y cuesta precisión de dirección. Cualquier modelo se puede probar
+> con `--model`, pero solo debe adoptarse si mejora en T4 **y** en CPU sin romper el 8/8.
 
 ---
 
@@ -134,7 +137,7 @@ Medidas empíricas sobre el Ground Truth canónico de referencia (`ground_truth.
 - **Recall de Eventos:** **100% (8/8 vehículos detectados)**
 - **Precisión de Dirección (`ENTRADA` / `SALIDA`):** **100% (8/8)**
 - **Falsos Positivos de Evento:** **0**
-- **Placas Exactas (Exact Match):** **33.3% – 50.0% (2 a 3 de 6 legibles)**
+- **Placas Exactas (Exact Match):** **33.3% (2 de 6 legibles)** — reproducible en T4 y en CPU
 - **Exactitud de Caracteres Honesta:** **75.6% (31/41 caracteres reales)** — penalizando las placas legibles no leídas (ej. `TAA2204` cuenta como 0/7).
 - **Acierto de Primer Carácter:** **50.0% (3/6)**
 - **Velocidad Sostenida:** **>6.4× Tiempo Real (160 FPS equivalentes)**
