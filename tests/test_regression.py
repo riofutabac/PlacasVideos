@@ -77,6 +77,11 @@ def test_evaluate_run_with_mock_db(tmp_path):
     assert metrics["event_recall"] == 1.0
     assert metrics["direction_accuracy"] == 1.0
     assert metrics["plate_exact_match"] == 1.0
+    assert metrics["character_accuracy"] == 1.0
+    assert metrics["unread_legible_plates"] == 0
+    assert metrics["pos0_accuracy"] == 1.0
+    assert metrics["total_real_gt_chars"] == 41
+    assert metrics["total_correct_chars"] == 41
     assert metrics["false_positives"] == 0
     assert metrics["matched_gt_count"] == 8
 
@@ -115,3 +120,58 @@ def test_evaluate_run_detects_false_positives_and_mismatches(tmp_path):
     assert metrics["direction_accuracy"] == 0.0
     # 2 detected - 1 matched = 1 false positive
     assert metrics["false_positives"] == 1
+    # 5 other legible plates unread
+    assert metrics["unread_legible_plates"] == 5
+    assert metrics["total_real_gt_chars"] == 41
+
+def test_evaluate_run_honest_unread_penalty(tmp_path):
+    """Test that a matched vehicle with unread plate penalizes character accuracy over all 41 GT chars."""
+    db_file = str(tmp_path / "test_unread.sqlite")
+    conn = sqlite3.connect(db_file)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE events (
+            event_id TEXT PRIMARY KEY,
+            processing_run_id TEXT,
+            video_source TEXT,
+            event_timestamp REAL,
+            direction TEXT,
+            plate_corrected TEXT,
+            plate_normalized TEXT,
+            duplicate_of TEXT
+        )
+    """)
+
+    gt_path = "benchmarks/ground_truth.json"
+    with open(gt_path) as f:
+        gt_data = json.load(f)
+
+    run_id = "TEST_UNREAD_RUN"
+    for item in gt_data:
+        # Simulate TAA2204 having no plate detected
+        plate = item.get("plate_text")
+        if item["ground_truth_id"] == "GT_60_3":
+            plate = None
+
+        c.execute("""
+            INSERT INTO events VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+        """, (
+            f"EVT_{item['ground_truth_id']}",
+            run_id,
+            item["video_source"],
+            item["approx_timestamp"],
+            item["direction"],
+            plate,
+            plate
+        ))
+    conn.commit()
+    conn.close()
+
+    metrics = evaluate_run(db_path=db_file, run_id=run_id, gt_path=gt_path)
+    assert metrics["unread_legible_plates"] == 1
+    assert metrics["plate_exact_match"] == 5 / 6
+    assert metrics["total_real_gt_chars"] == 41
+    # TAA2204 has 7 chars, so 41 - 7 = 34 correct
+    assert metrics["total_correct_chars"] == 34
+    assert round(metrics["character_accuracy"], 3) == round(34 / 41, 3)
+

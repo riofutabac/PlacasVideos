@@ -118,17 +118,24 @@ El pipeline soporta arquitecturas modernas de visión por computador según el h
 | :--- | :---: | :---: |
 | **Latencia en GPU NVIDIA T4** | **6.07 ms** (164.7 FPS) 🏆 | 6.81 ms (146.9 FPS) |
 | **Latencia en CPU Intel Xeon** | 22.59 ms (44.3 FPS) | **15.34 ms** (65.2 FPS) 🏆 (+32%) |
-| **Exactitud en cruce de placas** | **100% (6/6 legibles)** 🏆 | 33.3% (vibración de caja) |
+| **Exactitud exacta de placas (Exact Match)** | **33.3%** (2/6 base) / **50.0%** (3/6 calib.) 🏆 | 33.3% (vibración de caja) |
+| **Exactitud de caracteres (Honesta s/41)** | **75.6% (31/41 caracteres)** 🏆 | 70.7% (29/41 caracteres) |
+| **Acierto del primer carácter (Provincia)** | **50.0% (3/6 legibles)** 🏆 | 33.3% (2/6 legibles) |
+| **Placas legibles sin lectura (Unread)** | **1/6 (TAA2204)** | 2/6 |
 | **Dirección de cruce** | **100% (8/8)** 🏆 | 87.5% (7/8) |
+| **Recall de Eventos (Vehículos)** | **100% (8/8)** 🏆 | **100% (8/8)** 🏆 (con 1 falso positivo) |
 | **Tamaño de archivo** | 12.4 MB | **9.6 MB** 🏆 |
 
 ---
 
-## 📊 Métricas de Validación Calibradas
+## 📊 Métricas de Validación Calibradas (Honestas)
 
-En pruebas sobre los videos de referencia (`*(60).mp4` y `*(61).mp4`):
+Medidas empíricas sobre el Ground Truth canónico de referencia (`ground_truth.json`, clips `*(60).mp4` y `*(61).mp4`, evaluado en Tesla T4 e Intel Xeon, Septiembre 2026):
 - **Recall de Eventos:** **100% (8/8 vehículos detectados)**
-- **Precisión de Dirección (`ENTRADA` / `SALIDA`):** **100%**
+- **Precisión de Dirección (`ENTRADA` / `SALIDA`):** **100% (8/8)**
 - **Falsos Positivos de Evento:** **0**
+- **Placas Exactas (Exact Match):** **33.3% – 50.0% (2 a 3 de 6 legibles)**
+- **Exactitud de Caracteres Honesta:** **75.6% (31/41 caracteres reales)** — penalizando las placas legibles no leídas (ej. `TAA2204` cuenta como 0/7).
+- **Acierto de Primer Carácter:** **50.0% (3/6)**
 - **Velocidad Sostenida:** **>6.4× Tiempo Real (160 FPS equivalentes)**
 - **Costo Cloud:** Menos de **$0.06 USD por hora de video analizada** en GPU T4.
