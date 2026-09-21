@@ -136,12 +136,14 @@ def apply_ecuador_heuristics(
     elif needs_manual_review:
         status = 'REVISION_MANUAL'
         reasons.append("Ambigüedad en lectura: requiere revisión manual")
-    elif is_standard and ocr_conf >= 0.75:
+    elif is_standard and ocr_conf >= 0.80:
         status = 'OK'
-    elif ocr_conf < 0.60:
+    elif is_standard and ocr_conf >= 0.70:
+        status = 'REVISION_MANUAL'
+        reasons.append(f"Lectura con confianza moderada ({ocr_conf:.2f}): requiere verificación manual")
+    elif ocr_conf < 0.70:
         status = 'BAJA_CONFIANZA'
-    elif is_standard:
-        status = 'OK'
+        reasons.append(f"Baja confianza de OCR ({ocr_conf:.2f} < 0.70)")
     else:
         status = 'REVISION_MANUAL'
         reasons.append("Formato no estándar")

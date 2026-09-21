@@ -443,4 +443,44 @@ def test_vote_plate_characters_filters_body_text_brands():
     assert plate_b == "KENW0RRTH"
     assert needs_review_b is True
 
+def test_recognize_plate_below_min_confidence_rejected(processor):
+    class DummyRes:
+        def __init__(self, text, conf):
+            self.text = text
+            self.confidence = [conf] * len(text)
+
+    # Grille candidate like TEE1755 with conf 0.66 < min_ocr_confidence (0.70)
+    processor.alpr.ocr.predict.side_effect = [
+        DummyRes("TEE1755", 0.66),
+        None,
+    ]
+    crop = np.zeros((30, 70, 3), dtype=np.uint8)
+    candidates = [{"crop": crop, "det_conf": 0.90, "score": 0.85, "timestamp": 10.0}]
+
+    plate_raw, plate_crop, plate_conf, ocr_conf, best_plate_ts, ocr_votes = processor.recognize_plate_candidates(candidates)
+    assert plate_raw is None  # Treated as sin placa
+    assert ocr_conf == 0.0
+    assert plate_crop is not None  # Evidence image preserved for visual audit
+    assert len(ocr_votes) == 1
+    assert ocr_votes[0][0] == "TEE1755"
+
+def test_recognize_plate_above_min_confidence_accepted(processor):
+    class DummyRes:
+        def __init__(self, text, conf):
+            self.text = text
+            self.confidence = [conf] * len(text)
+
+    # Valid candidate with conf 0.75 >= min_ocr_confidence (0.70)
+    processor.alpr.ocr.predict.side_effect = [
+        DummyRes("PCW2492", 0.75),
+        None,
+    ]
+    crop = np.zeros((30, 70, 3), dtype=np.uint8)
+    candidates = [{"crop": crop, "det_conf": 0.90, "score": 0.85, "timestamp": 10.0}]
+
+    plate_raw, plate_crop, plate_conf, ocr_conf, best_plate_ts, ocr_votes = processor.recognize_plate_candidates(candidates)
+    assert plate_raw == "PCW2492"
+    assert ocr_conf == 0.75
+    assert plate_crop is not None
+
 

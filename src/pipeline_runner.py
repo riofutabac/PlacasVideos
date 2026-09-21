@@ -82,7 +82,7 @@ class ALPRPipeline:
         # Deduplicator
         d_cfg = self.cfg.get('deduplication', {})
         self.deduplicator = EventDeduplicator(
-            cooldown_seconds=d_cfg.get('cooldown_seconds', 25.0)
+            cooldown_seconds=d_cfg.get('cooldown_seconds', 45.0)
         )
 
         # Execution Device & Vehicle Model Selection
@@ -135,7 +135,8 @@ class ALPRPipeline:
             plate_evidence_dir=self.cfg.get('storage', {}).get('plates_dir', 'evidence/plates'),
             save_manifest=self.cfg.get('quality_ranking', {}).get('save_candidate_manifest', False),
             save_debug_crops=self.cfg.get('quality_ranking', {}).get('save_debug_crops', False),
-            province_prior=m_ocr.get('province_prior', {})
+            province_prior=m_ocr.get('province_prior', {}),
+            min_ocr_confidence=m_ocr.get('min_confidence', 0.70)
         )
 
         self.model_versions = {

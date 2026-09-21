@@ -173,7 +173,8 @@ class PlateProcessor:
         plate_evidence_dir: str = "evidence/plates",
         save_manifest: bool = False,
         save_debug_crops: bool = False,
-        province_prior: Optional[Dict[str, Any]] = None
+        province_prior: Optional[Dict[str, Any]] = None,
+        min_ocr_confidence: float = 0.70
     ):
         self.alpr = alpr
         self.ranker = ranker
@@ -183,6 +184,7 @@ class PlateProcessor:
         self.plate_evidence_dir = plate_evidence_dir
         self.save_manifest = save_manifest
         self.save_debug_crops = save_debug_crops
+        self.min_ocr_confidence = min_ocr_confidence
         self.manifest_records: List[Dict[str, Any]] = []
         self.last_needs_manual_review = False
 
@@ -312,26 +314,29 @@ class PlateProcessor:
                 self.last_needs_manual_review = needs_review
                 if c_text is not None:
                     clean_check = "".join(ch for ch in c_text if ch.isalnum())
-                    # Step A4: Reject reads with < 5 characters (e.g. 4W) as sin placa
-                    if len(clean_check) < 5:
-                        logger.info(f"Plate text '{c_text}' rejected (< 5 characters, treated as sin placa)")
+                    plate_crop = c_crop
+                    best_plate_ts = c_ts
+                    plate_conf = c_det_conf
+                    # Reject reads with < 5 characters or conf < min_ocr_confidence as sin placa
+                    if len(clean_check) < 5 or c_conf < self.min_ocr_confidence:
+                        logger.info(
+                            f"Plate text '{c_text}' rejected (len={len(clean_check)}, conf={c_conf:.2f} < {self.min_ocr_confidence:.2f}, treated as sin placa)"
+                        )
                         plate_raw = None
                         ocr_conf = 0.0
                     else:
                         plate_raw = c_text
                         ocr_conf = c_conf
-                        plate_crop = c_crop
-                        best_plate_ts = c_ts
-                        plate_conf = c_det_conf
                 else:
                     best = scored_ocr[0]
                     clean_check = "".join(ch for ch in best['text'] if ch.isalnum())
-                    if len(clean_check) < 5:
+                    plate_crop, best_plate_ts = best['crop'], best['timestamp']
+                    plate_conf = best['det_conf']
+                    if len(clean_check) < 5 or best['ocr_conf'] < self.min_ocr_confidence:
                         plate_raw = None
                         ocr_conf = 0.0
                     else:
-                        plate_raw, ocr_conf, plate_conf = best['text'], best['ocr_conf'], best['det_conf']
-                        plate_crop, best_plate_ts = best['crop'], best['timestamp']
+                        plate_raw, ocr_conf = best['text'], best['ocr_conf']
 
                 # Debug: save candidate crops only if explicitly enabled
                 if self.save_debug_crops:

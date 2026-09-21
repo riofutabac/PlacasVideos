@@ -106,9 +106,23 @@ def test_motorcycle_plate_corrections():
     assert len(res_m0['plate_corrected']) == 6
 
 def test_plate_status_by_confidence():
-    # Low confidence < 0.60
+    # Very low confidence < 0.70
     res_low = apply_ecuador_heuristics("PCW2492", 0.45)
     assert res_low['plate_status'] == "BAJA_CONFIANZA"
+
+    # Grille noise candidate like TEE1755 with conf 0.66 (< 0.70) -> BAJA_CONFIANZA
+    res_grille = apply_ecuador_heuristics("TEE1755", 0.66)
+    assert res_grille['plate_status'] == "BAJA_CONFIANZA"
+    assert "0.66 < 0.70" in res_grille['plate_correction_reason']
+
+    # Moderate confidence 0.70 <= conf < 0.80 -> REVISION_MANUAL
+    res_mod = apply_ecuador_heuristics("PCW2492", 0.75)
+    assert res_mod['plate_status'] == "REVISION_MANUAL"
+    assert "0.75" in res_mod['plate_correction_reason']
+
+    # High confidence conf >= 0.80 -> OK
+    res_ok = apply_ecuador_heuristics("PCW2492", 0.80)
+    assert res_ok['plate_status'] == "OK"
 
     # Non standard format with high confidence flags manual review
     res_spec = apply_ecuador_heuristics("POLICIA1", 0.95)

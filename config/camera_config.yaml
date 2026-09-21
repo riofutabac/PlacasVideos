@@ -67,6 +67,7 @@ models:
   ocr:
     engine: "fast_plate_ocr"
     model: "cct-xs-v2-global-model"
+    min_confidence: 0.70              # Confianza mínima para registrar placa (evita lecturas espurias en parrillas)
     province_prior:
       enabled: false
       beta: 0.10
@@ -91,5 +92,5 @@ quality_ranking:
     overexposure: 0.05
 
 deduplication:
-  cooldown_seconds: 25.0
+  cooldown_seconds: 45.0
   max_levenshtein: 1
