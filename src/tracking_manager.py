@@ -131,7 +131,7 @@ def update_tracks_and_fsm(
 
         # Only extract crop & rank if track has not yet been emitted
         if not state.has_emitted:
-            veh_crop_view = crop_roi[max(0, int(ry1)):min(crop_roi.shape[0], int(ry2)), max(0, int(rx1)):min(crop_roi.shape[1], int(ry2))]
+            veh_crop_view = crop_roi[max(0, int(ry1)):min(crop_roi.shape[0], int(ry2)), max(0, int(rx1)):min(crop_roi.shape[1], int(rx2))]
             if veh_crop_view.size > 0:
                 q_score = ranker.score_vehicle_frame(
                     vehicle_crop=veh_crop_view,
