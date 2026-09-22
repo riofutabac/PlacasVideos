@@ -1,4 +1,5 @@
 import os
+import json
 from unittest.mock import MagicMock, patch
 from datetime import datetime
 import numpy as np
@@ -182,4 +183,36 @@ def test_detect_and_filter_vehicles_preserves_large_trucks_in_salida(pipeline):
     # Truck must be kept, parked van must be filtered out
     assert boxes == [truck_salida_box]
     assert confs == [0.85] and classes == [7]
+
+
+def test_rejection_log_records_parked_curb_filter_only_when_enabled(pipeline, tmp_path):
+    """Rejection records must only be produced when diagnostics.log_rejections is enabled,
+    and must carry the correct reason (parked_curb_filter)."""
+    parked_van_box = [0.0, 250.0, 120.0, 1038.0]
+    pipeline.vehicle_runner = MagicMock()
+    pipeline.vehicle_runner.predict.return_value = ([parked_van_box], [0.40], [2], {})
+    pipeline._current_clip_id = "clipX.mp4"
+
+    # Disabled by default: no records produced
+    pipeline.rejection_logger.enabled = False
+    pipeline.rejection_logger.output_dir = str(tmp_path)
+    pipeline.rejection_logger.open("RUN_DISABLED")
+    pipeline._detect_and_filter_vehicles(
+        np.zeros((1064, 2300, 3), dtype=np.uint8), 300, 600, timestamp=10.0
+    )
+    assert pipeline.rejection_logger.path is None
+
+    # Enabled: parked_curb_filter record produced
+    pipeline.rejection_logger.enabled = True
+    pipeline.rejection_logger.open("RUN_ENABLED")
+    pipeline._detect_and_filter_vehicles(
+        np.zeros((1064, 2300, 3), dtype=np.uint8), 300, 600, timestamp=10.0
+    )
+    pipeline.rejection_logger.close()
+
+    with open(pipeline.rejection_logger.path) as f:
+        records = [json.loads(line) for line in f if line.strip()]
+    assert len(records) == 1
+    assert records[0]["reason"] == "parked_curb_filter"
+    assert records[0]["clip_id"] == "clipX.mp4"
 

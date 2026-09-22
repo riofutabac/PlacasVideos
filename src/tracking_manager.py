@@ -3,7 +3,7 @@ Tracking Manager for ALPR Pipeline.
 Handles track stitching, track state transitions, quality scoring insertion,
 and inactive track pruning.
 """
-from typing import Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional
 import numpy as np
 
 from src.pipeline_types import TrackState, VehicleFrameCandidate
@@ -162,12 +162,16 @@ def prune_inactive_tracks(
     timestamp: float,
     line_y: float,
     max_idle: float = 3.0,
-    force_all: bool = False
+    force_all: bool = False,
+    rejection_logger: Optional[Any] = None,
+    clip_id: Optional[str] = None
 ) -> List[TrackState]:
     """Prunes tracks that have aged out; returns tracks that crossed the line before disappearing."""
+    log_rejections = rejection_logger is not None and rejection_logger.enabled
     crossed_tracks = []
     for trk_id, state in list(tracks.items()):
         if force_all or (timestamp - state.last_timestamp) > max_idle:
+            was_crossed = False
             if not state.has_emitted and len(state.trajectory) >= 2:
                 y_coords = [pt[1] for pt in state.trajectory]
                 if (min(y_coords) < line_y and max(y_coords) > line_y) or state.state in ("CROSSED", "COMMITTED"):
@@ -175,6 +179,14 @@ def prune_inactive_tracks(
                     if not state.direction:
                         state.direction = "ENTRADA" if state.trajectory[-1][1] > state.trajectory[0][1] else "SALIDA"
                     crossed_tracks.append(state)
+                    was_crossed = True
+            if log_rejections and not was_crossed and not state.has_emitted:
+                last_pt = state.trajectory[-1] if state.trajectory else None
+                rejection_logger.log(
+                    clip_id=clip_id, timestamp=state.last_timestamp, reason='track_never_crossed',
+                    bbox=list(last_pt) if last_pt else None, vehicle_class=state.vehicle_class,
+                    confidence=None, track_id=trk_id
+                )
             if not force_all:
                 del tracks[trk_id]
     return crossed_tracks

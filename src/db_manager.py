@@ -42,6 +42,17 @@ class DatabaseManager:
             );
             """)
 
+            # Automatic migration for existing databases (batch-level timing, additive/nullable)
+            cursor.execute("PRAGMA table_info(processing_runs);")
+            existing_run_cols = {row[1] for row in cursor.fetchall()}
+            run_migrations = [
+                ("startup_seconds", "REAL DEFAULT 0.0"),
+                ("export_seconds", "REAL DEFAULT 0.0"),
+            ]
+            for col_name, col_type in run_migrations:
+                if col_name not in existing_run_cols:
+                    cursor.execute(f"ALTER TABLE processing_runs ADD COLUMN {col_name} {col_type};")
+
             # 2. Processed Clips (Checkpoints / Resume / Per-clip Telemetry)
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS processed_clips (
@@ -76,6 +87,10 @@ class DatabaseManager:
                 ("vehicle_detection_seconds", "REAL DEFAULT 0.0"),
                 ("plate_detection_seconds", "REAL DEFAULT 0.0"),
                 ("ocr_seconds", "REAL DEFAULT 0.0"),
+                # Instrumentation-only additions: per-clip gap breakdown (staging, hashing, OSD clock read)
+                ("staging_seconds", "REAL DEFAULT 0.0"),
+                ("file_hash_seconds", "REAL DEFAULT 0.0"),
+                ("clock_read_seconds", "REAL DEFAULT 0.0"),
             ]
             for col_name, col_type in migrations:
                 if col_name not in existing_cols:
@@ -129,14 +144,25 @@ class DatabaseManager:
             """, (run_id, pipeline_version, config_hash, json.dumps(model_versions), started_at))
             conn.commit()
 
-    def finish_run(self, run_id: str, finished_at: str, total_videos: int, total_events: int, speed_ratio: float, status: str = "COMPLETED"):
+    def finish_run(
+        self,
+        run_id: str,
+        finished_at: str,
+        total_videos: int,
+        total_events: int,
+        speed_ratio: float,
+        status: str = "COMPLETED",
+        startup_seconds: float = 0.0,
+        export_seconds: float = 0.0
+    ):
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
             UPDATE processing_runs
-            SET finished_at = ?, total_videos = ?, total_events = ?, speed_ratio = ?, status = ?
+            SET finished_at = ?, total_videos = ?, total_events = ?, speed_ratio = ?, status = ?,
+                startup_seconds = ?, export_seconds = ?
             WHERE run_id = ?
-            """, (finished_at, total_videos, total_events, speed_ratio, status, run_id))
+            """, (finished_at, total_videos, total_events, speed_ratio, status, startup_seconds, export_seconds, run_id))
             conn.commit()
 
     def is_clip_completed(self, clip_id: str, file_hash: str) -> bool:
@@ -165,7 +191,10 @@ class DatabaseManager:
         decode_seconds: float = 0.0,
         vehicle_detection_seconds: float = 0.0,
         plate_detection_seconds: float = 0.0,
-        ocr_seconds: float = 0.0
+        ocr_seconds: float = 0.0,
+        staging_seconds: float = 0.0,
+        file_hash_seconds: float = 0.0,
+        clock_read_seconds: float = 0.0
     ):
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -174,15 +203,37 @@ class DatabaseManager:
                 clip_id, run_id, file_path, file_hash, duration_sec, total_frames,
                 processed_events, status, started_at, completed_at,
                 wall_clock_seconds, speed_ratio,
-                decode_seconds, vehicle_detection_seconds, plate_detection_seconds, ocr_seconds
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                decode_seconds, vehicle_detection_seconds, plate_detection_seconds, ocr_seconds,
+                staging_seconds, file_hash_seconds, clock_read_seconds
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 clip_id, run_id, file_path, file_hash, duration_sec, total_frames,
                 events_count, status, started_at, completed_at,
                 wall_clock_seconds, speed_ratio,
-                decode_seconds, vehicle_detection_seconds, plate_detection_seconds, ocr_seconds
+                decode_seconds, vehicle_detection_seconds, plate_detection_seconds, ocr_seconds,
+                staging_seconds, file_hash_seconds, clock_read_seconds
             ))
             conn.commit()
+
+    def get_clip_timing_totals(self, run_id: str) -> Dict[str, float]:
+        """Aggregates per-clip instrumentation timers for a run (used for the batch gap summary)."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+            SELECT
+                COALESCE(SUM(staging_seconds), 0.0),
+                COALESCE(SUM(file_hash_seconds), 0.0),
+                COALESCE(SUM(clock_read_seconds), 0.0),
+                COALESCE(SUM(wall_clock_seconds), 0.0)
+            FROM processed_clips WHERE run_id = ?
+            """, (run_id,))
+            row = cursor.fetchone()
+            return {
+                'staging_seconds': row[0] if row else 0.0,
+                'file_hash_seconds': row[1] if row else 0.0,
+                'clock_read_seconds': row[2] if row else 0.0,
+                'wall_clock_seconds': row[3] if row else 0.0,
+            }
 
     def insert_event(self, event: Dict[str, Any]):
         with self._get_connection() as conn:

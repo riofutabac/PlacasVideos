@@ -66,6 +66,11 @@ def parse_args():
         action="store_true",
         help="Desactivar copiado temporal a SSD local antes de decodificar"
     )
+    parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help="Activar el registro de detecciones descartadas (rejection log) en reports/diagnostics/<run_id>.jsonl"
+    )
     return parser.parse_args()
 
 def resolve_video_files(source_arg):
@@ -115,14 +120,14 @@ def resolve_video_files(source_arg):
 
     return []
 
-def stage_video_locally(src_path: str, enabled: bool = True, stage_dir: str = "/content/ssd_video_cache") -> Tuple[str, bool]:
+def stage_video_locally(src_path: str, enabled: bool = True, stage_dir: str = "/content/ssd_video_cache") -> Tuple[str, bool, float]:
     """
     If the video is on a Google Drive / remote FUSE mount, stages it to the local fast SSD
     to eliminate network decode stalls.
-    Returns (path_to_process, is_temporary).
+    Returns (path_to_process, is_temporary, staging_seconds).
     """
     if not enabled:
-        return src_path, False
+        return src_path, False, 0.0
 
     abs_src = os.path.abspath(src_path)
     is_drive = "/content/drive" in abs_src
@@ -142,14 +147,15 @@ def stage_video_locally(src_path: str, enabled: bool = True, stage_dir: str = "/
                 dt = time.perf_counter() - t0
                 speed_mb = size_mb / dt if dt > 0 else 0.0
                 print(f"⚡ [SSD Staging] Listo en {dt:.2f}s ({speed_mb:.1f} MB/s). Decodificando en SSD local.")
-                return dst_path, True
+                return dst_path, True, dt
         except Exception as e:
             print(f"⚠️ [SSD Staging] No se pudo copiar a SSD ({e}), procesando directo desde Drive.")
-            return src_path, False
+            return src_path, False, 0.0
 
-    return src_path, False
+    return src_path, False, 0.0
 
 def run_full_pipeline():
+    t_startup_start = time.perf_counter()
     args = parse_args()
 
     print("="*70)
@@ -193,10 +199,12 @@ def run_full_pipeline():
     from src.pipeline_runner import ALPRPipeline, PIPELINE_VERSION as RUNNER_VER
     from src.excel_exporter import ExcelReportExporter
 
-    pipeline = ALPRPipeline(model_name_override=args.model)
+    pipeline = ALPRPipeline(model_name_override=args.model, diagnose_override=(True if args.diagnose else None))
     if args.decoder:
         pipeline.cfg.setdefault('video', {})['decode_backend'] = args.decoder
     run_id = f"RUN_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    if pipeline.rejection_logger.enabled:
+        print(f"🔍 [Diagnose] Rejection log habilitado: reports/diagnostics/{run_id}.jsonl")
 
     # Start run in DB
     pipeline.db.start_run(
@@ -212,6 +220,7 @@ def run_full_pipeline():
     total_duration_sec = 0.0
     total_processing_wall = 0.0
 
+    startup_seconds = time.perf_counter() - t_startup_start
     t_start_wall = time.perf_counter()
 
     for orig_vf in video_files:
@@ -219,7 +228,7 @@ def run_full_pipeline():
         is_temp = False
         try:
             # Stage just-in-time to local SSD cache (avoids disk filling and isolates I/O)
-            proc_vf, is_temp = stage_video_locally(orig_vf, enabled=not args.no_stage)
+            proc_vf, is_temp, staging_seconds = stage_video_locally(orig_vf, enabled=not args.no_stage)
 
             from src.video_decoder import probe_video_metadata
             meta = probe_video_metadata(proc_vf)
@@ -228,7 +237,7 @@ def run_full_pipeline():
             cur_dur = (frames / fps) if fps > 0 else 0.0
 
             t_vid_start = time.perf_counter()
-            events = pipeline.process_video_file(proc_vf, run_id, original_path=orig_vf)
+            events = pipeline.process_video_file(proc_vf, run_id, original_path=orig_vf, staging_seconds=staging_seconds)
             t_vid_elapsed = time.perf_counter() - t_vid_start
 
             total_events_all += len(events)
@@ -274,16 +283,6 @@ def run_full_pipeline():
     # Compute speed ratio based on pure video processing time
     speed_ratio = total_duration_sec / total_processing_wall if total_processing_wall > 0 else (total_duration_sec / t_total_wall if t_total_wall > 0 else 0.0)
 
-    # Finish run in DB
-    pipeline.db.finish_run(
-        run_id=run_id,
-        finished_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        total_videos=len(video_files),
-        total_events=total_events_all,
-        speed_ratio=round(speed_ratio, 2),
-        status="COMPLETED"
-    )
-
     # Print profiling table
     pipeline.profiler.print_summary()
 
@@ -298,6 +297,7 @@ def run_full_pipeline():
         print("="*60 + "\n")
 
     # Generate Excel Report
+    t_export_start = time.perf_counter()
     print("\n📊 Generando Reporte Excel de Auditoría con Fotos Incrustadas...")
     exporter = ExcelReportExporter(pipeline.db.db_path)
     excel_path = exporter.export_report(
@@ -312,6 +312,22 @@ def run_full_pipeline():
     except Exception as e:
         print(f"⚠️ No se pudo copiar a {latest_excel_path}: {e}")
     print(f"✅ Reporte listo para auditoría: {excel_path} (y actualizado en {latest_excel_path})")
+    export_seconds = time.perf_counter() - t_export_start
+
+    # Finish run in DB (finished_at now covers the Excel export, not just clip processing)
+    pipeline.db.finish_run(
+        run_id=run_id,
+        finished_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        total_videos=len(video_files),
+        total_events=total_events_all,
+        speed_ratio=round(speed_ratio, 2),
+        status="COMPLETED",
+        startup_seconds=round(startup_seconds, 2),
+        export_seconds=round(export_seconds, 2)
+    )
+
+    print_gap_summary(pipeline, run_id, startup_seconds, export_seconds, t_total_wall)
+    pipeline.rejection_logger.close()
 
     # Evaluate against Ground Truth if applicable
     try:
@@ -319,6 +335,33 @@ def run_full_pipeline():
         evaluate_run(pipeline.db.db_path, run_id)
     except Exception as e:
         print(f"Nota de evaluación: {e}")
+
+
+def print_gap_summary(pipeline, run_id: str, startup_seconds: float, export_seconds: float, t_total_wall: float) -> None:
+    """Prints a compact breakdown of copy/hash/clock/process/export time and their share of wall clock."""
+    totals = pipeline.db.get_clip_timing_totals(run_id)
+    copy_s = totals['staging_seconds']
+    hash_s = totals['file_hash_seconds']
+    clock_s = totals['clock_read_seconds']
+    process_s = totals['wall_clock_seconds']
+    wall = t_total_wall if t_total_wall > 0 else 1.0
+
+    def pct(x: float) -> float:
+        return round((x / wall) * 100, 1)
+
+    print("\n" + "="*60)
+    print("BATCH TIME BREAKDOWN (instrumentation only)")
+    print("="*60)
+    print(f"{'Segment':<22} {'Seconds':<12} {'% Wall Clock':<10}")
+    print("-"*60)
+    print(f"{'Startup':<22} {startup_seconds:<12.2f} {pct(startup_seconds):<10.1f}%")
+    print(f"{'Staging/Copy':<22} {copy_s:<12.2f} {pct(copy_s):<10.1f}%")
+    print(f"{'File Hash':<22} {hash_s:<12.2f} {pct(hash_s):<10.1f}%")
+    print(f"{'OSD Clock Read':<22} {clock_s:<12.2f} {pct(clock_s):<10.1f}%")
+    print(f"{'Clip Processing':<22} {process_s:<12.2f} {pct(process_s):<10.1f}%")
+    print(f"{'Excel Export':<22} {export_seconds:<12.2f} {pct(export_seconds):<10.1f}%")
+    print(f"{'Total Wall Clock':<22} {t_total_wall:<12.2f}")
+    print("="*60 + "\n")
 
 if __name__ == '__main__':
     run_full_pipeline()

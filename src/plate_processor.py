@@ -9,167 +9,13 @@ import logging
 from typing import List, Dict, Tuple, Optional, Any
 import numpy as np
 import cv2
-import re
-from collections import Counter
 from fast_alpr import ALPR
 from src.pipeline_types import VehicleFrameCandidate
 from src.quality_ranker import QualityRanker
 from src.timer_profiler import PipelineProfiler
-from src.ecuador_plate_validator import PROVINCE_CODES
-from src.deduplicator import levenshtein_distance
+from src.plate_voting import is_plausible_plate_candidate, vote_plate_characters, try_two_tier_ocr
 
 logger = logging.getLogger(__name__)
-
-def is_plausible_plate_candidate(text: str) -> bool:
-    """Filters out brand names, decals, stickers (e.g. T.U.GPS), logos, and OCR noise."""
-    if not text or len(text) < 5 or len(text) > 8:
-        return False
-    # Must have both letters and digits
-    if not any(c.isalpha() for c in text) or not any(c.isdigit() for c in text):
-        return False
-    # In Ecuador, plates start with at most 3 letters. 4 or more letters at start is a decal/brand (e.g. TUGP5, KENW0)
-    if re.match(r'^[A-Z]{4,}', text):
-        return False
-    # Plates must have at least 2 digits (e.g. TUGP5 only has 1 digit)
-    if sum(c.isdigit() for c in text) < 2:
-        return False
-    return True
-
-def vote_plate_characters(
-    scored_candidates: List[Dict],
-    province_prior_p: float = 0.05,
-    manual_review_threshold: float = 0.0
-) -> Tuple[Optional[str], float, Optional[np.ndarray], Optional[float], float, bool]:
-    """
-    Selects winning plate strictly from real OCR candidate reads (never invents chimeras).
-    Scores each unique candidate read by direct evidence (confidence * quality * format prior)
-    plus cross-agreement support from other reads within Levenshtein distance <= 2.
-    Returns:
-        (consensus_text, consensus_conf, best_crop, best_timestamp, best_det_conf, needs_manual_review)
-    """
-    if not scored_candidates:
-        return None, 0.0, None, None, 0.0, False
-
-    valid = []
-    for c in scored_candidates:
-        raw_text = c.get('text', '')
-        clean_t = "".join(ch for ch in raw_text if ch.isalnum()).upper()
-        if clean_t:
-            prior_boost = 0.0
-            if re.match(r'^[A-Z]{3}[0-9]{3,4}$', clean_t):
-                prior_boost += 0.15
-                if clean_t[0] in PROVINCE_CODES:
-                    prior_boost += 0.05
-            elif re.match(r'^[A-Z]{2}[0-9]{3}[A-Z]$', clean_t):
-                prior_boost += 0.15
-                if clean_t[0] in PROVINCE_CODES:
-                    prior_boost += 0.05
-
-            valid.append({
-                'clean_text': clean_t,
-                'plate_score': c.get('plate_score', 1.0) + prior_boost,
-                'ocr_conf': c.get('ocr_conf', 0.5),
-                'det_conf': c.get('det_conf', 0.0),
-                'crop': c.get('crop'),
-                'timestamp': c.get('timestamp')
-            })
-
-    if not valid:
-        return None, 0.0, None, None, 0.0, False
-
-    # Filter out brand/body text (e.g. KENW0RRTH) if any plausible plate candidates exist
-    needs_manual_review = False
-    plausible = [v for v in valid if is_plausible_plate_candidate(v['clean_text'])]
-    if plausible:
-        valid = plausible
-    else:
-        needs_manual_review = True
-
-    if len(valid) == 1:
-        v0 = valid[0]
-        return v0['clean_text'], v0['ocr_conf'], v0['crop'], v0['timestamp'], v0['det_conf'], needs_manual_review
-
-    unique_texts = list(set(v['clean_text'] for v in valid))
-    scores: Dict[str, float] = {}
-
-    for text in unique_texts:
-        instances = [v for v in valid if v['clean_text'] == text]
-        direct_w = sum(inst['ocr_conf'] * max(0.1, inst['plate_score']) for inst in instances)
-        if province_prior_p > 0.0 and text.startswith('P'):
-            direct_w += province_prior_p * len(instances)
-
-        cross_w = 0.0
-        for other in valid:
-            o_text = other['clean_text']
-            if o_text == text:
-                continue
-            dist = levenshtein_distance(text, o_text)
-            if dist <= 2:
-                sim = 1.0 - (dist / max(len(text), len(o_text)))
-                cross_w += (other['ocr_conf'] * max(0.1, other['plate_score'])) * (sim ** 2) * 0.5
-
-        scores[text] = direct_w + cross_w
-
-    ranked = sorted(scores.items(), key=lambda x: (x[1], x[0]), reverse=True)
-    winner_text, winner_score = ranked[0]
-
-    runner_up = ranked[1] if len(ranked) > 1 else None
-    if runner_up and manual_review_threshold > 0.0:
-        r_text, r_score = runner_up
-        diff = winner_score - r_score
-        if len(winner_text) > 0 and len(r_text) > 0 and winner_text[0] != r_text[0]:
-            if diff < manual_review_threshold:
-                needs_manual_review = True
-        elif diff < (manual_review_threshold * 0.5):
-            needs_manual_review = True
-
-    winner_instances = [v for v in valid if v['clean_text'] == winner_text]
-    best_cand = max(winner_instances, key=lambda v: (v['plate_score'], v['ocr_conf']))
-    consensus_conf = float(np.mean([v['ocr_conf'] for v in winner_instances]))
-
-    return winner_text, consensus_conf, best_cand['crop'], best_cand['timestamp'], best_cand['det_conf'], needs_manual_review
-
-def try_two_tier_ocr(
-    alpr: ALPR,
-    plate_crop: np.ndarray
-) -> Optional[Tuple[str, List[float], float]]:
-    """
-    Attempts two-tier (two-row) OCR for motorcycle or square-format plates.
-    Splits the crop into overlapping top and bottom halves, runs OCR on each,
-    and combines results if both rows produce plausible plate tokens.
-    """
-    if plate_crop is None or plate_crop.size == 0:
-        return None
-    h, w = plate_crop.shape[:2]
-    aspect = w / max(1, h)
-    if aspect > 1.35 or h < 24 or w < 24:
-        return None
-
-    try:
-        # Overlapping split: top 55% and bottom 58%
-        top_crop = plate_crop[0 : int(h * 0.55), :]
-        bot_crop = plate_crop[int(h * 0.42) : h, :]
-
-        top_res = alpr.ocr.predict(top_crop)
-        bot_res = alpr.ocr.predict(bot_crop)
-
-        if not top_res or not bot_res or not top_res.text or not bot_res.text:
-            return None
-
-        top_txt = "".join(c for c in top_res.text.strip().upper() if c.isalnum())
-        bot_txt = "".join(c for c in bot_res.text.strip().upper() if c.isalnum())
-
-        if len(top_txt) >= 2 and len(bot_txt) >= 3:
-            combined_text = top_txt + bot_txt
-            top_confs = top_res.confidence if top_res.confidence else [0.5] * len(top_txt)
-            bot_confs = bot_res.confidence if bot_res.confidence else [0.5] * len(bot_txt)
-            combined_confs = list(top_confs) + list(bot_confs)
-            avg_conf = float(np.mean(combined_confs)) if combined_confs else 0.5
-            return combined_text, combined_confs, avg_conf
-    except Exception:
-        pass
-
-    return None
 
 class PlateProcessor:
     def __init__(
@@ -183,7 +29,8 @@ class PlateProcessor:
         save_manifest: bool = False,
         save_debug_crops: bool = False,
         province_prior: Optional[Dict[str, Any]] = None,
-        min_ocr_confidence: float = 0.70
+        min_ocr_confidence: float = 0.70,
+        rejection_logger: Optional[Any] = None
     ):
         self.alpr = alpr
         self.ranker = ranker
@@ -194,6 +41,7 @@ class PlateProcessor:
         self.save_manifest = save_manifest
         self.save_debug_crops = save_debug_crops
         self.min_ocr_confidence = min_ocr_confidence
+        self.rejection_logger = rejection_logger
         self.manifest_records: List[Dict[str, Any]] = []
         self.last_needs_manual_review = False
 
@@ -268,7 +116,8 @@ class PlateProcessor:
     def recognize_plate_candidates(
         self,
         candidates: List[Dict],
-        event_id: Optional[str] = None
+        event_id: Optional[str] = None,
+        clip_id: Optional[str] = None
     ) -> Tuple[Optional[str], Optional[np.ndarray], float, float, Optional[float], list]:
         """Executes OCR on top-K ranked plate candidates and calculates consensus votes."""
         self.profiler.start_stage('ocr')
@@ -331,6 +180,7 @@ class PlateProcessor:
                         logger.info(
                             f"Plate text '{c_text}' rejected (len={len(clean_check)}, conf={c_conf:.2f}, plausible={is_plausible_plate_candidate(clean_check)}, treated as sin placa)"
                         )
+                        self._log_plate_rejection(clip_id, c_ts, c_text, c_conf)
                         plate_raw = None
                         ocr_conf = 0.0
                     else:
@@ -342,6 +192,7 @@ class PlateProcessor:
                     plate_crop, best_plate_ts = best['crop'], best['timestamp']
                     plate_conf = best['det_conf']
                     if len(clean_check) < 5 or best['ocr_conf'] < self.min_ocr_confidence or not is_plausible_plate_candidate(clean_check):
+                        self._log_plate_rejection(clip_id, best['timestamp'], best['text'], best['ocr_conf'])
                         plate_raw = None
                         ocr_conf = 0.0
                     else:
@@ -366,6 +217,15 @@ class PlateProcessor:
 
         self.profiler.stop_stage('ocr')
         return plate_raw, plate_crop, plate_conf, ocr_conf, best_plate_ts, ocr_votes
+
+    def _log_plate_rejection(self, clip_id: Optional[str], timestamp: Optional[float], rejected_text: str, rejected_confidence: float) -> None:
+        """Records a plate read discarded by the confidence gate or the non-plate/decal filter."""
+        if self.rejection_logger is None or not self.rejection_logger.enabled:
+            return
+        self.rejection_logger.log(
+            clip_id=clip_id, timestamp=timestamp, reason='plate_read_rejected',
+            confidence=round(float(rejected_confidence), 3), rejected_text=rejected_text
+        )
 
     def write_manifest(self, output_path: Optional[str] = None) -> str:
         """Writes candidate manifest JSON to disk."""

@@ -94,3 +94,6 @@ quality_ranking:
 deduplication:
   cooldown_seconds: 60.0
   max_levenshtein: 1
+
+diagnostics:
+  log_rejections: false  # off by default; enable via --diagnose or set true here

@@ -26,7 +26,6 @@ from src.deduplicator import EventDeduplicator
 from src.ecuador_plate_validator import apply_ecuador_heuristics
 from src.model_resolver import resolve_vehicle_model
 from src.vehicle_runtime import VehicleDetectorRunner
-from src.video_decoder import create_decoder
 from src.pipeline_types import (
     VehicleFrameCandidate,
     TrackState,
@@ -35,25 +34,34 @@ from src.pipeline_types import (
 )
 from src.plate_processor import PlateProcessor
 from src.tracking_manager import update_tracks_and_fsm, prune_inactive_tracks
+from src.rejection_logger import RejectionLogger
+from src.vehicle_filtering import VehicleFilterMixin
 
 PIPELINE_VERSION = "1.9.0"
 
-class ALPRPipeline:
+class ALPRPipeline(VehicleFilterMixin):
     def __init__(
         self,
         config_path: str = "config/camera_config.yaml",
         db_path: str = "data/events.sqlite",
-        model_name_override: Optional[str] = None
+        model_name_override: Optional[str] = None,
+        diagnose_override: Optional[bool] = None
     ):
         with open(config_path) as f:
             self.cfg = yaml.safe_load(f)
-            
+
         if model_name_override:
             self.cfg.setdefault('models', {}).setdefault('vehicle_detector', {})['model_name'] = model_name_override
-            
+
+        if diagnose_override is not None:
+            self.cfg.setdefault('diagnostics', {})['log_rejections'] = diagnose_override
+
         self.config_hash = hashlib.md5(yaml.dump(self.cfg).encode()).hexdigest()[:8]
         self.db = DatabaseManager(db_path)
         self.profiler = PipelineProfiler()
+        diag_cfg = self.cfg.get('diagnostics', {})
+        self.rejection_logger = RejectionLogger(enabled=diag_cfg.get('log_rejections', False))
+        self._current_clip_id: Optional[str] = None
         qr_cfg = self.cfg.get('quality_ranking', {})
         self.ranker = QualityRanker(qr_cfg.get('weights_vehicle'), qr_cfg.get('weights_plate'))
         
@@ -136,7 +144,8 @@ class ALPRPipeline:
             save_manifest=self.cfg.get('quality_ranking', {}).get('save_candidate_manifest', False),
             save_debug_crops=self.cfg.get('quality_ranking', {}).get('save_debug_crops', False),
             province_prior=m_ocr.get('province_prior', {}),
-            min_ocr_confidence=m_ocr.get('min_confidence', 0.70)
+            min_ocr_confidence=m_ocr.get('min_confidence', 0.70),
+            rejection_logger=self.rejection_logger
         )
 
         self.model_versions = {
@@ -162,53 +171,11 @@ class ALPRPipeline:
     def is_point_in_gravel(self, point: Tuple[int, int]) -> bool:
         return cv2.pointPolygonTest(self.poly_gravel, (float(point[0]), float(point[1])), False) >= 0
 
-    def _init_clip_decoder(self, video_path: str):
-        backend = self.cfg.get('video', {}).get('decode_backend', 'auto')
-        queue_sz = self.cfg.get('video', {}).get('decoder_queue_size', 128)
-        decoder = create_decoder(
-            video_path,
-            backend=backend,
-            profiler=self.profiler,
-            crop_rect=self.crop_rect,
-            queue_size=queue_sz
-        )
-        is_dec_cropped = getattr(decoder, 'is_cropped', False)
-        is_nv12 = getattr(decoder, 'frame_format', 'bgr') == 'nv12'
-        dec_h = decoder.crop_h if is_dec_cropped else decoder.height
-        dec_w = decoder.crop_w if is_dec_cropped else decoder.width
-        bgr_buf = np.empty((dec_h, dec_w, 3), dtype=np.uint8) if is_nv12 else None
-        cx1, cy1 = self.crop_rect['x_min'], self.crop_rect['y_min']
-        cx2, cy2 = self.crop_rect['x_max'], self.crop_rect['y_max']
-        return decoder, bgr_buf, is_nv12, is_dec_cropped, dec_h, dec_w, cx1, cy1, cx2, cy2
-
-    def _detect_and_filter_vehicles(self, crop_roi: np.ndarray, cx1: int, cy1: int, timestamp: float):
-        self.profiler.start_stage('vehicle_detection')
-        raw_boxes, raw_confs, raw_classes, timing = self.vehicle_runner.predict(
-            crop_roi, imgsz=self.vehicle_imgsz, conf=self.vehicle_conf, classes=self.vehicle_classes
-        )
-        self.profiler.stop_stage('vehicle_detection')
-        self.profiler.record_stage_time('vehicle_preprocess', timing.get('preprocess', 0.0))
-        self.profiler.record_stage_time('vehicle_inference', timing.get('inference', 0.0))
-
-        t_post_start = time.perf_counter()
-        valid_boxes, valid_confs, valid_classes = [], [], []
-        for (rx1, ry1, rx2, ry2), conf, cls_id in zip(raw_boxes, raw_confs, raw_classes):
-            fx1, fy1, fx2, fy2 = int(rx1 + cx1), int(ry1 + cy1), int(rx2 + cx1), int(ry2 + cy1)
-            # Exclude stationary parked van on far bottom-left curb (x <= 460)
-            if fx2 <= 460 and fy2 > 1200:
-                continue
-            if self.is_point_in_gravel(((fx1 + fx2) // 2, fy2)):
-                valid_boxes.append([rx1, ry1, rx2, ry2])
-                valid_confs.append(conf)
-                valid_classes.append(3 if cls_id in (0, 1) else cls_id)
-
-        post_extra = time.perf_counter() - t_post_start
-        self.profiler.record_stage_time('vehicle_postprocess', timing.get('postprocess', 0.0) + post_extra)
-        if valid_boxes:
-            self.motion_gate.notify_vehicle_detected(timestamp)
-        return valid_boxes, valid_confs, valid_classes
-
-    def _record_clip_summary(self, clip_id: str, file_hash: str, display_path: str, duration_sec: float, frame_idx: int, events_count: int, started_at_str: str, run_id: str, status: str = "COMPLETED"):
+    def _record_clip_summary(
+        self, clip_id: str, file_hash: str, display_path: str, duration_sec: float, frame_idx: int,
+        events_count: int, started_at_str: str, run_id: str, status: str = "COMPLETED",
+        staging_seconds: float = 0.0, file_hash_seconds: float = 0.0, clock_read_seconds: float = 0.0
+    ):
         completed_at_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         clip_perf = self.profiler.finish_clip(frame_idx, duration_sec) if status == "COMPLETED" else {'wall_clock_seconds': 0.0, 'speed_ratio': 0.0, 'decode_seconds': 0.0, 'vehicle_detection_seconds': 0.0, 'plate_detection_seconds': 0.0, 'ocr_seconds': 0.0}
         self.db.record_clip(
@@ -217,19 +184,32 @@ class ALPRPipeline:
             started_at=started_at_str, completed_at=completed_at_str,
             wall_clock_seconds=clip_perf['wall_clock_seconds'], speed_ratio=clip_perf['speed_ratio'],
             decode_seconds=clip_perf['decode_seconds'], vehicle_detection_seconds=clip_perf['vehicle_detection_seconds'],
-            plate_detection_seconds=clip_perf['plate_detection_seconds'], ocr_seconds=clip_perf['ocr_seconds']
+            plate_detection_seconds=clip_perf['plate_detection_seconds'], ocr_seconds=clip_perf['ocr_seconds'],
+            staging_seconds=staging_seconds, file_hash_seconds=file_hash_seconds, clock_read_seconds=clock_read_seconds
         )
         if status == "COMPLETED":
             print(f"Finished {clip_id}: Recorded {events_count} transit events in {clip_perf['wall_clock_seconds']}s ({clip_perf['speed_ratio']}x realtime) [decode: {clip_perf['decode_seconds']}s, yolo: {clip_perf['vehicle_detection_seconds']}s].")
 
-    def process_video_file(self, video_path: str, run_id: str, force_reprocess: bool = True, original_path: Optional[str] = None) -> List[Dict]:
+    def process_video_file(
+        self, video_path: str, run_id: str, force_reprocess: bool = True,
+        original_path: Optional[str] = None, staging_seconds: float = 0.0
+    ) -> List[Dict]:
         display_path = original_path if original_path else video_path
         clip_id = os.path.basename(display_path)
+        self._current_clip_id = clip_id
+        self.rejection_logger.open(run_id)
+
+        t_clock0 = time.perf_counter()
         clip_start_dt = get_clip_start_datetime(video_path, fallback_filename=display_path)
+        clock_read_seconds = time.perf_counter() - t_clock0
+
         started_at_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Starting video processing: {clip_id} (Ref Time: {clip_start_dt.strftime('%Y-%m-%d %H:%M:%S')})")
-        
+
+        t_hash0 = time.perf_counter()
         file_hash = compute_file_hash(video_path)
+        file_hash_seconds = time.perf_counter() - t_hash0
+
         if not force_reprocess and self.db.is_clip_completed(clip_id, file_hash):
             print(f"Checkpoint found: {clip_id} was already completed. Skipping without re-read.")
             return []
@@ -239,7 +219,10 @@ class ALPRPipeline:
             decoder, bgr_buffer, is_nv12, is_dec_cropped, dec_h, dec_w, cx1, cy1, cx2, cy2 = self._init_clip_decoder(video_path)
         except Exception as e:
             print(f"⚠️ [Corrupted Clip] Skipping {clip_id}: {e}")
-            self._record_clip_summary(clip_id, file_hash, display_path, 0.0, 0, 0, started_at_str, run_id, status="CORRUPTED")
+            self._record_clip_summary(
+                clip_id, file_hash, display_path, 0.0, 0, 0, started_at_str, run_id, status="CORRUPTED",
+                staging_seconds=staging_seconds, file_hash_seconds=file_hash_seconds, clock_read_seconds=clock_read_seconds
+            )
             return []
         duration_sec = decoder.duration_sec
 
@@ -298,13 +281,17 @@ class ALPRPipeline:
                     post_crossing_window_seconds=self.post_crossing_window,
                     min_frame_separation_seconds=self.min_frame_sep
                 )
+
                 for st in committed_tracks:
                     evt = self.finalize_vehicle_event(st, clip_id, file_hash, run_id, clip_start_dt)
                     if evt:
                         clip_events.append(evt)
 
                 # Prune inactive tracks
-                expired_tracks = prune_inactive_tracks(tracks, timestamp, self.fsm.line_y, max_idle=3.0)
+                expired_tracks = prune_inactive_tracks(
+                    tracks, timestamp, self.fsm.line_y, max_idle=3.0,
+                    rejection_logger=self.rejection_logger, clip_id=clip_id
+                )
                 for st in expired_tracks:
                     evt = self.finalize_vehicle_event(st, clip_id, file_hash, run_id, clip_start_dt)
                     if evt:
@@ -313,13 +300,19 @@ class ALPRPipeline:
             decoder.release()
 
         # Final pass at clip end
-        remaining_tracks = prune_inactive_tracks(tracks, 1e9, self.fsm.line_y, force_all=True)
+        remaining_tracks = prune_inactive_tracks(
+            tracks, 1e9, self.fsm.line_y, force_all=True,
+            rejection_logger=self.rejection_logger, clip_id=clip_id
+        )
         for st in remaining_tracks:
             evt = self.finalize_vehicle_event(st, clip_id, file_hash, run_id, clip_start_dt)
             if evt:
                 clip_events.append(evt)
 
-        self._record_clip_summary(clip_id, file_hash, display_path, duration_sec, frame_idx, len(clip_events), started_at_str, run_id)
+        self._record_clip_summary(
+            clip_id, file_hash, display_path, duration_sec, frame_idx, len(clip_events), started_at_str, run_id,
+            staging_seconds=staging_seconds, file_hash_seconds=file_hash_seconds, clock_read_seconds=clock_read_seconds
+        )
         if self.plate_processor.save_manifest:
             self.plate_processor.write_manifest()
         return clip_events
@@ -335,7 +328,7 @@ class ALPRPipeline:
 
         candidates = self.plate_processor.detect_plate_candidates(track.best_vehicle_frames, event_id=event_id)
         plate_raw, plate_crop, plate_conf, ocr_conf, best_plate_ts, ocr_votes = self.plate_processor.recognize_plate_candidates(
-            candidates, event_id=event_id
+            candidates, event_id=event_id, clip_id=video_source
         )
 
         needs_review = getattr(self.plate_processor, 'last_needs_manual_review', False)
@@ -351,6 +344,14 @@ class ALPRPipeline:
             vehicle_crop=best_cand.vehicle_crop,
             abs_timestamp=abs_ts
         )
+
+        if duplicate_of and self.rejection_logger.enabled:
+            self.rejection_logger.log(
+                clip_id=video_source, timestamp=crossing_ts, reason='dedup_discarded',
+                bbox=list(best_cand.bbox_in_full_frame) if best_cand else None,
+                vehicle_class=track.vehicle_class, confidence=round(ocr_conf, 3),
+                duplicate_of=duplicate_of, plate_normalized=heuristics['plate_normalized']
+            )
 
         event_record = {
             'event_id': event_id,
