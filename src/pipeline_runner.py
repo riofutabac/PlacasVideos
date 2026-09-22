@@ -33,6 +33,7 @@ from src.pipeline_types import (
     compute_file_hash
 )
 from src.plate_processor import PlateProcessor
+from src import fast_convert
 from src.tracking_manager import update_tracks_and_fsm, prune_inactive_tracks
 from src.rejection_logger import RejectionLogger
 from src.vehicle_filtering import VehicleFilterMixin
@@ -45,7 +46,8 @@ class ALPRPipeline(VehicleFilterMixin):
         config_path: str = "config/camera_config.yaml",
         db_path: str = "data/events.sqlite",
         model_name_override: Optional[str] = None,
-        diagnose_override: Optional[bool] = None
+        diagnose_override: Optional[bool] = None,
+        fast_convert_override: Optional[bool] = None
     ):
         with open(config_path) as f:
             self.cfg = yaml.safe_load(f)
@@ -55,6 +57,8 @@ class ALPRPipeline(VehicleFilterMixin):
 
         if diagnose_override is not None:
             self.cfg.setdefault('diagnostics', {})['log_rejections'] = diagnose_override
+
+        self.fast_convert = fast_convert.resolve_fast_convert_flag(self.cfg, fast_convert_override)
 
         self.config_hash = hashlib.md5(yaml.dump(self.cfg).encode()).hexdigest()[:8]
         self.db = DatabaseManager(db_path)
@@ -115,6 +119,8 @@ class ALPRPipeline(VehicleFilterMixin):
         self.vehicle_model = self.vehicle_runner
         self.vehicle_classes = self.vehicle_runner.classes
         self.vehicle_conf = self.vehicle_runner.conf_threshold
+        if self.fast_convert:
+            fast_convert.announce_fast_convert(self.vehicle_runner, self.crop_rect, self.vehicle_imgsz)
 
         # FastALPR Model Loading
         m_plate = self.cfg.get('models', {}).get('plate_detector', {})
@@ -256,11 +262,9 @@ class ALPRPipeline(VehicleFilterMixin):
                 if not run_detector:
                     continue
 
-                self.profiler.start_stage('frame_conversion')
-                crop_roi = decoder.to_bgr(raw_roi, dst=bgr_buffer) if is_nv12 else raw_roi
-                self.profiler.stop_stage('frame_conversion')
-
-                valid_boxes, valid_confs, valid_classes = self._detect_and_filter_vehicles(crop_roi, cx1, cy1, timestamp)
+                valid_boxes, valid_confs, valid_classes, crop_roi = self._run_detection_stage(
+                    raw_roi, is_nv12, dec_h, dec_w, decoder, bgr_buffer, cx1, cy1, timestamp
+                )
 
                 self.profiler.start_stage('tracking')
                 if valid_boxes:

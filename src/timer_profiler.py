@@ -37,6 +37,7 @@ class PipelineProfiler:
             'decode_nvdec': StageTimer(),
             'frame_download': StageTimer(),
             'frame_conversion': StageTimer(),
+            'frame_conversion_fullres': StageTimer(),
             'motion_gate': StageTimer(),
             'vehicle_detection': StageTimer(),
             'vehicle_preprocess': StageTimer(),

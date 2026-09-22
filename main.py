@@ -76,6 +76,11 @@ def parse_args():
         action="store_true",
         help="Adelantar el copiado a SSD del siguiente clip mientras se procesa el actual (opt-in, ver video.prefetch_next_clip)"
     )
+    parser.add_argument(
+        "--fast-convert",
+        action="store_true",
+        help="Detectar vehículos sobre ROI reducido (misma escala que usa Ultralytics internamente) en vez de convertir todo el ROI NV12->BGR a resolución completa; full-res se sigue usando para ranking/evidencia (opt-in, ver video.fast_convert)"
+    )
     return parser.parse_args()
 
 def resolve_video_files(source_arg):
@@ -204,7 +209,11 @@ def run_full_pipeline():
     from src.pipeline_runner import ALPRPipeline, PIPELINE_VERSION as RUNNER_VER
     from src.excel_exporter import ExcelReportExporter
 
-    pipeline = ALPRPipeline(model_name_override=args.model, diagnose_override=(True if args.diagnose else None))
+    pipeline = ALPRPipeline(
+        model_name_override=args.model,
+        diagnose_override=(True if args.diagnose else None),
+        fast_convert_override=(True if args.fast_convert else None)
+    )
     if args.decoder:
         pipeline.cfg.setdefault('video', {})['decode_backend'] = args.decoder
     run_id = f"RUN_{datetime.now().strftime('%Y%m%d_%H%M%S')}"

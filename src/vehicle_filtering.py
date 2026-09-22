@@ -9,13 +9,15 @@ from typing import Tuple
 import numpy as np
 
 from src.video_decoder import create_decoder
+from src import fast_convert
 
 
 class VehicleFilterMixin:
     """Mixin providing per-clip decoder setup and per-frame vehicle detection/filtering.
     Expects the host class (ALPRPipeline) to provide: self.cfg, self.profiler, self.crop_rect,
     self.vehicle_runner, self.vehicle_imgsz, self.vehicle_conf, self.vehicle_classes,
-    self.rejection_logger, self._current_clip_id, self.is_point_in_gravel, self.motion_gate.
+    self.rejection_logger, self._current_clip_id, self.is_point_in_gravel, self.motion_gate,
+    self.fast_convert.
     """
 
     def _init_clip_decoder(self, video_path: str):
@@ -37,7 +39,48 @@ class VehicleFilterMixin:
         cx2, cy2 = self.crop_rect['x_max'], self.crop_rect['y_max']
         return decoder, bgr_buf, is_nv12, is_dec_cropped, dec_h, dec_w, cx1, cy1, cx2, cy2
 
-    def _detect_and_filter_vehicles(self, crop_roi: np.ndarray, cx1: int, cy1: int, timestamp: float):
+    def _build_fast_detection_input(self, raw_roi: np.ndarray, is_nv12: bool, dec_h: int, dec_w: int):
+        """Builds the small detection-only image for --fast-convert. Returns (small_img, scale)."""
+        self.profiler.start_stage('frame_conversion')
+        if is_nv12:
+            small_img, scale = fast_convert.build_detection_image_nv12(raw_roi, dec_h, dec_w, self.vehicle_imgsz)
+        else:
+            small_img, scale = fast_convert.build_detection_image_bgr(raw_roi, self.vehicle_imgsz)
+        self.profiler.stop_stage('frame_conversion')
+        return small_img, scale
+
+    def _maybe_fullres_crop(self, raw_roi: np.ndarray, is_nv12: bool, decoder, bgr_buffer, have_detections: bool):
+        """Produces the full-resolution BGR ROI (today's conversion) only when at least one
+        vehicle survived filtering this frame, since that is the only case quality ranking
+        and evidence crops need full-res pixels. Returns None when skipped."""
+        if not have_detections:
+            return None
+        self.profiler.start_stage('frame_conversion_fullres')
+        crop_roi = decoder.to_bgr(raw_roi, dst=bgr_buffer) if is_nv12 else raw_roi
+        self.profiler.stop_stage('frame_conversion_fullres')
+        return crop_roi
+
+    def _run_detection_stage(self, raw_roi: np.ndarray, is_nv12: bool, dec_h: int, dec_w: int,
+                              decoder, bgr_buffer, cx1: int, cy1: int, timestamp: float):
+        """Runs vehicle detection for one analyzed frame, dispatching to the fast-convert
+        (downscaled detection + on-demand full-res crop) or legacy (always full-res) path.
+        Returns (valid_boxes, valid_confs, valid_classes, crop_roi) where crop_roi is the
+        full-resolution BGR ROI (None only in fast-convert mode with zero surviving detections)."""
+        if self.fast_convert:
+            small_img, det_scale = self._build_fast_detection_input(raw_roi, is_nv12, dec_h, dec_w)
+            valid_boxes, valid_confs, valid_classes = self._detect_and_filter_vehicles(
+                small_img, cx1, cy1, timestamp, scale=det_scale
+            )
+            crop_roi = self._maybe_fullres_crop(raw_roi, is_nv12, decoder, bgr_buffer, bool(valid_boxes))
+            return valid_boxes, valid_confs, valid_classes, crop_roi
+
+        self.profiler.start_stage('frame_conversion')
+        crop_roi = decoder.to_bgr(raw_roi, dst=bgr_buffer) if is_nv12 else raw_roi
+        self.profiler.stop_stage('frame_conversion')
+        valid_boxes, valid_confs, valid_classes = self._detect_and_filter_vehicles(crop_roi, cx1, cy1, timestamp)
+        return valid_boxes, valid_confs, valid_classes, crop_roi
+
+    def _detect_and_filter_vehicles(self, crop_roi: np.ndarray, cx1: int, cy1: int, timestamp: float, scale: float = 1.0):
         self.profiler.start_stage('vehicle_detection')
         raw_boxes, raw_confs, raw_classes, timing = self.vehicle_runner.predict(
             crop_roi, imgsz=self.vehicle_imgsz, conf=self.vehicle_conf, classes=self.vehicle_classes
@@ -45,6 +88,9 @@ class VehicleFilterMixin:
         self.profiler.stop_stage('vehicle_detection')
         self.profiler.record_stage_time('vehicle_preprocess', timing.get('preprocess', 0.0))
         self.profiler.record_stage_time('vehicle_inference', timing.get('inference', 0.0))
+
+        if scale != 1.0 and raw_boxes:
+            raw_boxes = fast_convert.rescale_boxes(raw_boxes, scale)
 
         t_post_start = time.perf_counter()
         valid_boxes, valid_confs, valid_classes = [], [], []
