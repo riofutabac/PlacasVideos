@@ -71,6 +71,11 @@ def parse_args():
         action="store_true",
         help="Activar el registro de detecciones descartadas (rejection log) en reports/diagnostics/<run_id>.jsonl"
     )
+    parser.add_argument(
+        "--prefetch",
+        action="store_true",
+        help="Adelantar el copiado a SSD del siguiente clip mientras se procesa el actual (opt-in, ver video.prefetch_next_clip)"
+    )
     return parser.parse_args()
 
 def resolve_video_files(source_arg):
@@ -206,6 +211,12 @@ def run_full_pipeline():
     if pipeline.rejection_logger.enabled:
         print(f"🔍 [Diagnose] Rejection log habilitado: reports/diagnostics/{run_id}.jsonl")
 
+    prefetch_enabled = bool(args.prefetch) or bool(
+        pipeline.cfg.get('video', {}).get('prefetch_next_clip', False)
+    )
+    if prefetch_enabled:
+        print("⚡ [Prefetch] Copiado anticipado del siguiente clip habilitado (--prefetch).")
+
     # Start run in DB
     pipeline.db.start_run(
         run_id=run_id,
@@ -223,59 +234,86 @@ def run_full_pipeline():
     startup_seconds = time.perf_counter() - t_startup_start
     t_start_wall = time.perf_counter()
 
-    for orig_vf in video_files:
-        proc_vf = orig_vf
-        is_temp = False
-        try:
-            # Stage just-in-time to local SSD cache (avoids disk filling and isolates I/O)
-            proc_vf, is_temp, staging_seconds = stage_video_locally(orig_vf, enabled=not args.no_stage)
+    total_wait_for_next_seconds = 0.0
+    prefetcher = None
+    if prefetch_enabled:
+        from src.clip_prefetcher import ClipPrefetcher
 
-            from src.video_decoder import probe_video_metadata
-            meta = probe_video_metadata(proc_vf)
-            fps = meta['fps']
-            frames = meta['total_frames']
-            cur_dur = (frames / fps) if fps > 0 else 0.0
+        def _stage_fn(vf: str) -> Tuple[str, bool, float]:
+            return stage_video_locally(vf, enabled=not args.no_stage)
 
-            t_vid_start = time.perf_counter()
-            events = pipeline.process_video_file(proc_vf, run_id, original_path=orig_vf, staging_seconds=staging_seconds)
-            t_vid_elapsed = time.perf_counter() - t_vid_start
+        prefetcher = ClipPrefetcher(video_files, stage_fn=_stage_fn)
+        prefetcher.start()
 
-            total_events_all += len(events)
-            total_source_frames += frames
-            total_duration_sec += cur_dur
-            total_processing_wall += t_vid_elapsed
-
-        except Exception as e:
-            print(f"\n❌ [ERROR EN VIDEO] {os.path.basename(orig_vf)}: {e}")
-            print(f"⚠️ El archivo parece estar dañado o incompleto (ej. 'moov atom not found').")
-            print(f"   Omitiendo este archivo y continuando automáticamente con los siguientes videos...\n")
+    try:
+        for orig_vf in video_files:
+            proc_vf = orig_vf
+            is_temp = False
             try:
-                pipeline.db.record_clip(
-                    clip_id=os.path.basename(orig_vf),
-                    run_id=run_id,
-                    file_path=orig_vf,
-                    file_hash="",
-                    duration_sec=0.0,
-                    total_frames=0,
-                    events_count=0,
-                    status=f"FAILED: {str(e)[:50]}",
-                    started_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    completed_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    wall_clock_seconds=0.0,
-                    speed_ratio=0.0,
-                    decode_seconds=0.0,
-                    vehicle_detection_seconds=0.0,
-                    plate_detection_seconds=0.0,
-                    ocr_seconds=0.0
-                )
-            except Exception:
-                pass
-        finally:
-            if is_temp and os.path.exists(proc_vf):
+                if prefetcher is not None:
+                    # Consume the clip the background worker already staged (or is
+                    # staging); this is where processing "waits" for the next file.
+                    t_wait_start = time.perf_counter()
+                    staged_orig, proc_vf, is_temp, staging_seconds, stage_error = prefetcher.get_next()
+                    total_wait_for_next_seconds += time.perf_counter() - t_wait_start
+                    assert staged_orig == orig_vf, "Prefetcher returned clips out of order"
+                    if stage_error is not None:
+                        raise stage_error
+                else:
+                    # Stage just-in-time to local SSD cache (avoids disk filling and isolates I/O)
+                    proc_vf, is_temp, staging_seconds = stage_video_locally(orig_vf, enabled=not args.no_stage)
+
+                from src.video_decoder import probe_video_metadata
+                meta = probe_video_metadata(proc_vf)
+                fps = meta['fps']
+                frames = meta['total_frames']
+                cur_dur = (frames / fps) if fps > 0 else 0.0
+
+                t_vid_start = time.perf_counter()
+                events = pipeline.process_video_file(proc_vf, run_id, original_path=orig_vf, staging_seconds=staging_seconds)
+                t_vid_elapsed = time.perf_counter() - t_vid_start
+
+                total_events_all += len(events)
+                total_source_frames += frames
+                total_duration_sec += cur_dur
+                total_processing_wall += t_vid_elapsed
+
+            except Exception as e:
+                print(f"\n❌ [ERROR EN VIDEO] {os.path.basename(orig_vf)}: {e}")
+                print(f"⚠️ El archivo parece estar dañado o incompleto (ej. 'moov atom not found').")
+                print(f"   Omitiendo este archivo y continuando automáticamente con los siguientes videos...\n")
                 try:
-                    os.remove(proc_vf)
+                    pipeline.db.record_clip(
+                        clip_id=os.path.basename(orig_vf),
+                        run_id=run_id,
+                        file_path=orig_vf,
+                        file_hash="",
+                        duration_sec=0.0,
+                        total_frames=0,
+                        events_count=0,
+                        status=f"FAILED: {str(e)[:50]}",
+                        started_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        completed_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        wall_clock_seconds=0.0,
+                        speed_ratio=0.0,
+                        decode_seconds=0.0,
+                        vehicle_detection_seconds=0.0,
+                        plate_detection_seconds=0.0,
+                        ocr_seconds=0.0
+                    )
                 except Exception:
                     pass
+            finally:
+                if is_temp and os.path.exists(proc_vf):
+                    try:
+                        os.remove(proc_vf)
+                    except Exception:
+                        pass
+    finally:
+        # Ensure a clean shutdown of the prefetch worker on both the normal
+        # path and interruptions (e.g. Ctrl-C) — no stray temp files, no hang.
+        if prefetcher is not None:
+            prefetcher.stop()
 
     t_total_wall = time.perf_counter() - t_start_wall
     pipeline.profiler.finish(total_source_frames, total_duration_sec)
@@ -326,7 +364,10 @@ def run_full_pipeline():
         export_seconds=round(export_seconds, 2)
     )
 
-    print_gap_summary(pipeline, run_id, startup_seconds, export_seconds, t_total_wall)
+    print_gap_summary(
+        pipeline, run_id, startup_seconds, export_seconds, t_total_wall,
+        prefetch_enabled=prefetch_enabled, wait_for_next_seconds=total_wait_for_next_seconds
+    )
     pipeline.rejection_logger.close()
 
     # Evaluate against Ground Truth if applicable
@@ -337,7 +378,10 @@ def run_full_pipeline():
         print(f"Nota de evaluación: {e}")
 
 
-def print_gap_summary(pipeline, run_id: str, startup_seconds: float, export_seconds: float, t_total_wall: float) -> None:
+def print_gap_summary(
+    pipeline, run_id: str, startup_seconds: float, export_seconds: float, t_total_wall: float,
+    prefetch_enabled: bool = False, wait_for_next_seconds: float = 0.0
+) -> None:
     """Prints a compact breakdown of copy/hash/clock/process/export time and their share of wall clock."""
     totals = pipeline.db.get_clip_timing_totals(run_id)
     copy_s = totals['staging_seconds']
@@ -359,8 +403,16 @@ def print_gap_summary(pipeline, run_id: str, startup_seconds: float, export_seco
     print(f"{'File Hash':<22} {hash_s:<12.2f} {pct(hash_s):<10.1f}%")
     print(f"{'OSD Clock Read':<22} {clock_s:<12.2f} {pct(clock_s):<10.1f}%")
     print(f"{'Clip Processing':<22} {process_s:<12.2f} {pct(process_s):<10.1f}%")
+    if prefetch_enabled:
+        print(f"{'Wait For Next File':<22} {wait_for_next_seconds:<12.2f} {pct(wait_for_next_seconds):<10.1f}%")
     print(f"{'Excel Export':<22} {export_seconds:<12.2f} {pct(export_seconds):<10.1f}%")
     print(f"{'Total Wall Clock':<22} {t_total_wall:<12.2f}")
+    if prefetch_enabled:
+        print(
+            "Nota: con --prefetch, 'Staging/Copy' se solapa con 'Clip Processing' del clip anterior "
+            "(copia en background), por lo que la suma de segmentos ya NO coincide con el wall clock. "
+            "'Wait For Next File' es el tiempo real que el consumidor esperó a que terminara la copia."
+        )
     print("="*60 + "\n")
 
 if __name__ == '__main__':
